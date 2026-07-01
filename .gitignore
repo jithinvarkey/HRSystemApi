@@ -1,2 +1,4 @@
 /nbproject
 /storage
+.env
+/config
