@@ -22,6 +22,7 @@ class AuthController extends Controller
             'login'    => 'nullable|string|max:255',
             'password' => 'required|string|min:6',
         ]);
+        
 
         $user = $this->userForLogin((string) ($request->input('login') ?: $request->input('email')));
 
