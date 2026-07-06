@@ -1001,7 +1001,7 @@ class LeaveController extends Controller {
         $pending = (float) $annual->sum(fn(LeaveAllocation $allocation) => (float) $allocation->pending_days);
         $usedHours = (float) $annual->sum(fn(LeaveAllocation $allocation) => (float) ($allocation->used_hours ?? 0));
         $pendingHours = (float) $annual->sum(fn(LeaveAllocation $allocation) => (float) ($allocation->pending_hours ?? 0));
-        $remaining = max(0, round($allocated + $usage['active_carry_forward_remaining'] - $usage['annual_used_days'] - $pending, 2));
+        $remaining = round($allocated + $usage['active_carry_forward_remaining'] - $usage['annual_used_days'] - $pending, 2);
 
         $display->setAttribute('allocated_days', $allocated);
         $display->setAttribute('annual_entitlement', $allocated);
@@ -1088,7 +1088,7 @@ class LeaveController extends Controller {
         $pendingDays = (float) (clone $base)->whereIn('status', ['pending', 'manager_approved'])->sum('total_days');
         $usage = $this->annualUsageWithCarryForward($allocation, $periodStart, $periodEnd, $carriedForward, $balanceDate);
         $usedDays = $usage['total_used_days'];
-        $remainingDays = max(0, round($usage['active_carry_forward_remaining'] + $accrued - $usage['annual_used_days'], 2));
+        $remainingDays = round($usage['active_carry_forward_remaining'] + $accrued - $usage['annual_used_days'], 2);
 
         $allocation->setAttribute('allocated_days', $accrued);
         $allocation->setAttribute('carried_forward_days', $usage['active_carry_forward_remaining']);
@@ -1137,7 +1137,7 @@ class LeaveController extends Controller {
         $usageEndDate = $includeFullPeriodUsage ? $periodEnd->copy() : $balanceDate->copy();
         $usage = $this->annualUsageWithCarryForward($allocation, $periodStart, $usageEndDate, $carriedForward, $balanceDate);
         $pending = (float) ($allocation->pending_days ?? 0);
-        $remaining = max(0, round((float) $allocation->allocated_days + $usage['active_carry_forward_remaining'] - $usage['annual_used_days'] - $pending, 2));
+        $remaining = round((float) $allocation->allocated_days + $usage['active_carry_forward_remaining'] - $usage['annual_used_days'] - $pending, 2);
 
         $allocation->setAttribute('remaining_days', $remaining);
         $allocation->setAttribute('active_carried_forward_days', $usage['active_carry_forward_remaining']);
