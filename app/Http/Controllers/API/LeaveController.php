@@ -1102,6 +1102,7 @@ class LeaveController extends Controller {
         $allocation->setAttribute('approved_taken_until_as_of', $usedDays);
         $allocation->setAttribute('approved_taken_contract_period', $usedDays);
         $allocation->setAttribute('annual_entitlement', $entitlement);
+        $allocation->setAttribute('contract_year_allocated_days', $entitlement);
         $allocation->setAttribute('balance_as_of', $balanceDate->toDateString());
         $allocation->setAttribute('accrual_period_start', $periodStart->toDateString());
         $allocation->setAttribute('accrual_period_end', $periodEnd->toDateString());
@@ -1410,7 +1411,11 @@ class LeaveController extends Controller {
 
         $now = now('Asia/Riyadh')->startOfDay();
         $allocations->getCollection()->transform(function (LeaveAllocation $allocation) use ($now) {
-            return $this->decorateAnnualBalanceForDate($allocation, $now, true);
+            if ($allocation->leaveType && $this->isAnnualLeaveType($allocation->leaveType)) {
+                return $this->projectedAnnualAllocation($allocation, $now);
+            }
+
+            return $allocation;
         });
 
         $response = $allocations->toArray();
