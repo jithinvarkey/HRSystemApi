@@ -1085,9 +1085,9 @@ class LeaveController extends Controller {
                 ->orWhere('name', 'like', '%Annual%')
         );
 
-        $usedDays = (float) (clone $base)->where('status', 'approved')->sum('total_days');
         $pendingDays = (float) (clone $base)->whereIn('status', ['pending', 'manager_approved'])->sum('total_days');
-        $usage = $this->annualUsageWithCarryForward($allocation, $periodStart, $balanceDate, $carriedForward);
+        $usage = $this->annualUsageWithCarryForward($allocation, $periodStart, $periodEnd, $carriedForward, $balanceDate);
+        $usedDays = $usage['total_used_days'];
         $remainingDays = max(0, round($usage['active_carry_forward_remaining'] + $accrued - $usage['annual_used_days'], 2));
 
         $allocation->setAttribute('allocated_days', $accrued);
@@ -1100,6 +1100,7 @@ class LeaveController extends Controller {
         $allocation->setAttribute('remaining_days', $remainingDays);
         $allocation->setAttribute('earned_until_as_of', $accrued);
         $allocation->setAttribute('approved_taken_until_as_of', $usedDays);
+        $allocation->setAttribute('approved_taken_contract_period', $usedDays);
         $allocation->setAttribute('annual_entitlement', $entitlement);
         $allocation->setAttribute('balance_as_of', $balanceDate->toDateString());
         $allocation->setAttribute('accrual_period_start', $periodStart->toDateString());
