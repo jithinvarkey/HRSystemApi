@@ -152,12 +152,24 @@ class RecruitmentService
         return $tasks;
     }
 
-    /** Generate next employee code e.g. EMP0042 */
+    /** Generate next employee number without the legacy EMP prefix. */
     private function generateEmployeeCode(): string
     {
-        $last = \App\Models\Employee::withTrashed()->orderBy('id', 'desc')->first();
-        $next = $last ? intval(substr($last->employee_code, 3)) + 1 : 1;
-        return 'EMP' . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
+        $max = \App\Models\Employee::withTrashed()
+            ->pluck('employee_code')
+            ->map(fn ($code) => $this->employeeCodeNumber($code))
+            ->max();
+
+        return (string) (((int) $max) + 1);
+    }
+
+    private function employeeCodeNumber(mixed $code): int
+    {
+        $value = strtoupper(trim((string) $code));
+        $value = preg_replace('/^EMP/i', '', $value) ?? '';
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+
+        return $digits === '' ? 0 : (int) ltrim($digits, '0');
     }
 
     /** Create annual leave allocations for all active leave types */

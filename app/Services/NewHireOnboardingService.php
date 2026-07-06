@@ -23,10 +23,7 @@ class NewHireOnboardingService
             'created_by' => auth()->id(),
         ]);
 
-        $frontendUrl = (string) config('app.frontend_url');
-        if (!$frontendUrl || $frontendUrl === (string) config('app.url')) {
-            $frontendUrl = env('FRONTEND_URL', 'http://127.0.0.1:4200');
-        }
+        $frontendUrl = (string) config('app.frontend_url', config('app.url'));
 
         $url = rtrim($frontendUrl, '/') . '/public/onboarding/' . $rawToken;
 
