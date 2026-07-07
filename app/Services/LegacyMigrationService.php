@@ -51,6 +51,10 @@ class LegacyMigrationService
             ];
 
             foreach ($rows as $index => $row) {
+                if ($index % 100 === 0) {
+                    @set_time_limit(120);
+                }
+
                 $line = $row['_line'] ?? ($index + 2);
                 $this->skipReason = null;
                 try {
