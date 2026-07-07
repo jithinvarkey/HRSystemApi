@@ -1005,8 +1005,11 @@ class LeaveController extends Controller {
 
         $display->setAttribute('allocated_days', $allocated);
         $display->setAttribute('annual_entitlement', $allocated);
-        $display->setAttribute('carried_forward_days', $usage['active_carry_forward_remaining']);
+        $display->setAttribute('carried_forward_days', $carriedForward);
+        $display->setAttribute('active_carried_forward_days', $usage['active_carry_forward_remaining']);
         $display->setAttribute('expired_carried_forward_days', $usage['expired_carry_forward_days']);
+        $display->setAttribute('carry_forward_used_days', $usage['carry_forward_used_days']);
+        $display->setAttribute('carry_forward_expiry_date', $this->carryForwardExpiryDate($periodStart)->toDateString());
         $display->setAttribute('used_days', $used);
         $display->setAttribute('pending_days', $pending);
         $display->setAttribute('remaining_days', $remaining);
@@ -1091,11 +1094,13 @@ class LeaveController extends Controller {
         $remainingDays = round($usage['active_carry_forward_remaining'] + $accrued - $usage['annual_used_days'], 2);
 
         $allocation->setAttribute('allocated_days', $accrued);
-        $allocation->setAttribute('carried_forward_days', $usage['active_carry_forward_remaining']);
+        $allocation->setAttribute('carried_forward_days', $carriedForward);
+        $allocation->setAttribute('active_carried_forward_days', $usage['active_carry_forward_remaining']);
         $allocation->setAttribute('expired_carried_forward_days', $usage['expired_carry_forward_days']);
         $allocation->setAttribute('used_days', $usedDays);
         $allocation->setAttribute('annual_used_days_after_carry_forward', $usage['annual_used_days']);
         $allocation->setAttribute('carry_forward_used_days', $usage['carry_forward_used_days']);
+        $allocation->setAttribute('carry_forward_expiry_date', $this->carryForwardExpiryDate($periodStart)->toDateString());
         $allocation->setAttribute('pending_days', $pendingDays);
         $allocation->setAttribute('remaining_days', $remainingDays);
         $allocation->setAttribute('earned_until_as_of', $accrued);
