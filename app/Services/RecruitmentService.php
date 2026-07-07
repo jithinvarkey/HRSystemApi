@@ -1,10 +1,13 @@
 <?php
 namespace App\Services;
 
+use App\Mail\InterviewInviteMail;
 use App\Models\JobApplication;
 use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 
 class RecruitmentService
@@ -13,7 +16,18 @@ class RecruitmentService
 
     public function sendInterviewInvite($interview): void
     {
-        // Mail::to($interview->application->applicant_email)->send(new InterviewInviteMail($interview));
+        $interview->loadMissing('application.jobPosting');
+        $email = $interview->application?->applicant_email;
+
+        if (!$email) {
+            Log::warning('Interview invite email skipped: applicant email missing.', [
+                'interview_id' => $interview->id,
+                'application_id' => $interview->application_id,
+            ]);
+            return;
+        }
+
+        Mail::to($email)->send(new InterviewInviteMail($interview));
     }
 
     public function generateOfferLetter(JobApplication $app, array $data): array

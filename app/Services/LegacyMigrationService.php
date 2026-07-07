@@ -542,11 +542,14 @@ class LegacyMigrationService
     {
         $row = $this->normalizeLegacyAliases($row);
         $employeeCode = $this->cleanLegacyValue($row['employee_code'] ?? null);
-        $employee = $this->employeeByCodeOrNull($employeeCode);
+        $employeeEmail = $this->cleanLegacyValue($row['email'] ?? null);
+        $employee = $this->employeeByCodeOrEmail($employeeCode, $employeeEmail);
         if (!$employee) {
-            $this->skipReason = "Employee not found for code/email [{$employeeCode}].";
+            $identifier = $employeeEmail ? "{$employeeCode} / {$employeeEmail}" : $employeeCode;
+            $this->skipReason = "Employee not found for code/email [{$identifier}].";
             Log::warning('Legacy leave record skipped: employee not found.', [
                 'employee_code' => $employeeCode,
+                'employee_email' => $employeeEmail,
                 'leave_type' => $this->cleanLegacyValue($row['leave_type'] ?? null),
                 'start_date' => $this->cleanLegacyValue($row['start_date'] ?? null),
             ]);
@@ -629,7 +632,21 @@ class LegacyMigrationService
     private function loanRecord(array $row): string
     {
         $row = $this->normalizeLegacyAliases($row);
-        $employee = $this->employeeByCode($row['employee_code']);
+        $employee = $this->employeeByCodeOrEmail($row['employee_code'] ?? null, $row['email'] ?? null);
+        if (!$employee) {
+            $employeeCode = $this->cleanLegacyValue($row['employee_code'] ?? null);
+            $employeeEmail = $this->cleanLegacyValue($row['email'] ?? null);
+            $identifier = $employeeEmail ? "{$employeeCode} / {$employeeEmail}" : $employeeCode;
+            $this->skipReason = "Employee not found for code/email [{$identifier}].";
+            Log::warning('Legacy loan record skipped: employee not found.', [
+                'employee_code' => $employeeCode,
+                'employee_email' => $employeeEmail,
+                'loan_type' => $this->cleanLegacyValue($row['loan_type'] ?? null),
+                'loan_id' => $this->cleanLegacyValue($row['loan_id'] ?? null),
+            ]);
+
+            return 'skipped';
+        }
         $amount = $this->nullableDecimal($row['amount']) ?? 0;
         $installments = max(1, (int) ($row['installments'] ?? $row['installmentnumber'] ?? 1));
         $emiAmount = $this->nullableDecimal($row['emi_amount'] ?? null);
@@ -1011,6 +1028,11 @@ class LegacyMigrationService
         }
 
         throw new \InvalidArgumentException("Employee not found for code/email [{$code}].");
+    }
+
+    private function employeeByCodeOrEmail(?string $code, ?string $email): ?Employee
+    {
+        return $this->employeeByCodeOrNull($code) ?: $this->employeeByCodeOrNull($email);
     }
 
     private function employeeByCodeOrNull(?string $code): ?Employee
