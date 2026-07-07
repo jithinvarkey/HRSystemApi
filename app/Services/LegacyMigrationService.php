@@ -24,6 +24,7 @@ class LegacyMigrationService
     private const MODULE_ORDER = ['departments', 'job_positions', 'employees', 'employee_managers', 'leave_records', 'loan_records'];
     private array $departmentAliases = [];
     private array $unitAliases = [];
+    private ?string $skipReason = null;
 
     public function migrate(UploadedFile $file, string $scope = 'all', bool $dryRun = false): array
     {
@@ -46,13 +47,20 @@ class LegacyMigrationService
                 'skipped' => 0,
                 'failed' => 0,
                 'errors' => [],
+                'skipped_rows' => [],
             ];
 
             foreach ($rows as $index => $row) {
                 $line = $row['_line'] ?? ($index + 2);
+                $this->skipReason = null;
                 try {
                     if ($this->rowIsEmpty($row)) {
                         $moduleSummary['skipped']++;
+                        $moduleSummary['skipped_rows'][] = [
+                            'row' => $line,
+                            'message' => 'Empty row.',
+                            'data' => $this->publicRow($row),
+                        ];
                         continue;
                     }
 
@@ -68,6 +76,18 @@ class LegacyMigrationService
 
                     if ($result === 'skipped') {
                         $moduleSummary['skipped']++;
+                        $skippedRow = [
+                            'row' => $line,
+                            'message' => $this->skipReason ?: 'Skipped because no migration change was needed.',
+                            'data' => $this->publicRow($row),
+                        ];
+                        $moduleSummary['skipped_rows'][] = $skippedRow;
+                        Log::warning('Legacy migration row skipped.', [
+                            'module' => $module,
+                            'row' => $line,
+                            'reason' => $skippedRow['message'],
+                            'data' => $skippedRow['data'],
+                        ]);
                     } else {
                         $moduleSummary['success']++;
                     }
@@ -521,7 +541,19 @@ class LegacyMigrationService
     private function leaveRecord(array $row): string
     {
         $row = $this->normalizeLegacyAliases($row);
-        $employee = $this->employeeByCode($row['employee_code']);
+        $employeeCode = $this->cleanLegacyValue($row['employee_code'] ?? null);
+        $employee = $this->employeeByCodeOrNull($employeeCode);
+        if (!$employee) {
+            $this->skipReason = "Employee not found for code/email [{$employeeCode}].";
+            Log::warning('Legacy leave record skipped: employee not found.', [
+                'employee_code' => $employeeCode,
+                'leave_type' => $this->cleanLegacyValue($row['leave_type'] ?? null),
+                'start_date' => $this->cleanLegacyValue($row['start_date'] ?? null),
+            ]);
+
+            return 'skipped';
+        }
+
         $leaveType = $this->findOrCreateLeaveType($row['leave_type']);
         $startDate = $this->legacyDate($row['start_date'] ?? null);
         $endDate = $this->legacyDate($row['end_date'] ?? null);
@@ -973,6 +1005,21 @@ class LegacyMigrationService
 
     private function employeeByCode(string $code): Employee
     {
+        $employee = $this->employeeByCodeOrNull($code);
+        if ($employee) {
+            return $employee;
+        }
+
+        throw new \InvalidArgumentException("Employee not found for code/email [{$code}].");
+    }
+
+    private function employeeByCodeOrNull(?string $code): ?Employee
+    {
+        $code = $this->cleanLegacyValue($code);
+        if (!$code) {
+            return null;
+        }
+
         $formattedCode = $this->employeeCode($code);
 
         return Employee::where(function ($query) use ($code, $formattedCode) {
@@ -980,7 +1027,7 @@ class LegacyMigrationService
                     ->orWhere('employee_code', $code)
                     ->orWhere('email', $code);
             })
-            ->firstOrFail();
+            ->first();
     }
 
     private function findEmployeeForManagerMigration(?string $code, ?string $email, string $label, ?string $name = null, bool $allowMissing = false): ?Employee
