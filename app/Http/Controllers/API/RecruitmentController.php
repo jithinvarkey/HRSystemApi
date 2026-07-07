@@ -138,10 +138,27 @@ class RecruitmentController extends Controller {
     }
 
     public function scheduleInterview(Request $request) {
-        $request->validate(['application_id'=>'required|exists:job_applications,id','round'=>'required','scheduled_at'=>'required|date']);
-        $interview = Interview::create($request->all());
+        $data = $request->validate([
+            'application_id' => 'required|exists:job_applications,id',
+            'round' => 'required|string|max:100',
+            'scheduled_at' => 'required|date',
+            'duration_minutes' => 'nullable|integer|min:15|max:480',
+            'format' => 'nullable|in:video,in_person,phone',
+            'location_or_link' => 'required|string|max:500',
+            'interviewers' => 'nullable',
+        ]);
+
+        if (isset($data['interviewers']) && is_string($data['interviewers'])) {
+            $data['interviewers'] = array_values(array_filter(array_map('trim', explode(',', $data['interviewers']))));
+        }
+
+        $interview = Interview::create($data);
+        $interview->application()->update(['stage' => 'interview']);
         $this->service->sendInterviewInvite($interview);
-        return response()->json(['interview' => $interview], 201);
+        return response()->json([
+            'message' => 'Interview scheduled and invitation email sent.',
+            'interview' => $interview->fresh('application.jobPosting'),
+        ], 201);
     }
 
     public function updateInterview(Request $request, $id) {
