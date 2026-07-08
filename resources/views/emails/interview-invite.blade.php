@@ -42,13 +42,13 @@
       <tr style="background:#f9fafb">
         <td style="padding:10px 16px;font-size:12px;color:#6b7280;font-weight:bold;text-transform:uppercase;border-top:1px solid #e5e7eb">Type</td>
         <td style="padding:10px 16px;font-size:13px;color:#1a1a2e;border-top:1px solid #e5e7eb">
-          {{ ucfirst(str_replace('_',' ', $interview->format ?? 'in_person')) }}
+          {{ $interview->format === 'in_person' ? 'Face to Face' : ucfirst(str_replace('_',' ', $interview->format ?? 'in_person')) }}
         </td>
       </tr>
       @if($interview->location_or_link)
       <tr>
         <td style="padding:10px 16px;font-size:12px;color:#6b7280;font-weight:bold;text-transform:uppercase;border-top:1px solid #e5e7eb">
-          {{ $interview->format === 'in_person' ? 'Location' : 'Meeting Details' }}
+          {{ $interview->format === 'in_person' ? 'Interview Location' : 'Meeting Details' }}
         </td>
         <td style="padding:10px 16px;font-size:13px;color:#1a1a2e;border-top:1px solid #e5e7eb">
           @if(str_starts_with((string) $interview->location_or_link, 'http'))
