@@ -1303,10 +1303,22 @@ class LeaveController extends Controller {
             ]);
         }
 
+        $monthStart = null;
+        $monthEnd = null;
+
+        if ($request->month || $request->year) {
+            $year = (int) ($request->year ?: now()->year);
+            $month = (int) ($request->month ?: now()->month);
+            $monthStart = Carbon::create($year, $month, 1)->startOfDay();
+            $monthEnd = $monthStart->copy()->endOfMonth();
+        }
+
         $approved = LeaveRequest::with(['employee.department', 'leaveType'])
                 ->where('status', 'approved')
-                ->when($request->month, fn($q) => $q->whereMonth('start_date', $request->month))
-                ->when($request->year, fn($q) => $q->whereYear('start_date', $request->year))
+                ->when($monthStart && $monthEnd, fn($q) =>
+                    $q->whereDate('start_date', '<=', $monthEnd->toDateString())
+                      ->whereDate('end_date', '>=', $monthStart->toDateString())
+                )
                 ->when(!$isHRAdmin, fn($q) =>
                     $q->whereHas('employee', fn($eq) => $eq->where('department_id', $employee->department_id))
                 )
