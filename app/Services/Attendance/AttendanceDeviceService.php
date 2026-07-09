@@ -53,7 +53,7 @@ class AttendanceDeviceService
 
         foreach ($punches as $punch) {
             $empNum    = (string)($punch['employee_number'] ?? '');
-            $punchTime = Carbon::parse($punch['punch_time']);
+            $punchTime = Carbon::parse($punch['punch_time'])->setMicrosecond(0);
             $punchType = (int)($punch['punch_type'] ?? 0);
             $mode      = $punch['verification_mode'] ?? null;
 
@@ -75,6 +75,10 @@ class AttendanceDeviceService
             );
 
             if (!$rawLog->wasRecentlyCreated) {
+                $rawLog->forceFill([
+                    'employee_id' => $rawLog->employee_id ?: $empId,
+                    'processed' => false,
+                ])->save();
                 $skippedDuplicates++;
                 continue;
             }
@@ -119,6 +123,15 @@ class AttendanceDeviceService
 
         foreach ($grouped as $key => $dayPunches) {
             [$empId, $date] = explode('|', $key);
+            $dayPunches = DeviceAttendanceLog::where('device_id', $device->id)
+                ->where('employee_id', $empId)
+                ->whereDate('punch_time', $date)
+                ->orderBy('punch_time')
+                ->get();
+
+            if ($dayPunches->isEmpty()) {
+                continue;
+            }
 
             // Determine check-in (first punch) and check-out (last punch)
             $sorted   = $dayPunches->sortBy('punch_time');
@@ -142,8 +155,8 @@ class AttendanceDeviceService
             $existing = AttendanceLog::where('employee_id', $empId)->where('date', $date)->first();
 
             if ($existing) {
-                // Only update from device if source is 'device' or no check-out yet
-                if ($existing->source === 'device' || !$existing->check_out) {
+                // Rebuild biometric/API rows from all raw punches for the day; avoid overwriting completed manual entries.
+                if ($existing->source !== 'manual' || !$existing->check_out) {
                     $existing->update([
                         'check_in'       => $checkIn,
                         'check_out'      => $checkOut ?? $existing->check_out,

@@ -276,7 +276,7 @@ class BioTimeService {
         foreach ($punches as $punch) {
             $empNum = (string) ($punch['emp_code'] ?? '');
 
-            $punchTime = Carbon::parse($punch['punch_time']);
+            $punchTime = Carbon::parse($punch['punch_time'])->setMicrosecond(0);
             $empId = $empMap[$empNum] ?? null;
  
             if (!$empId) {
@@ -299,6 +299,10 @@ class BioTimeService {
             );
 
             if (!$rawLog->wasRecentlyCreated) {
+                $rawLog->forceFill([
+                    'employee_id' => $rawLog->employee_id ?: $empId,
+                    'processed' => false,
+                ])->save();
                 $skippedDuplicates++;
                 continue;
             }
