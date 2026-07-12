@@ -451,7 +451,7 @@ class LeaveController extends Controller {
         if ($leaveType->is_hourly) {
             $request->validate([
                 'leave_type_id' => 'required|exists:leave_types,id',
-                'start_date' => 'required|date|after_or_equal:today',
+                'start_date' => 'required|date',
                 'start_time' => 'required|date_format:H:i',
                 'end_time' => 'required|date_format:H:i|after:start_time',
                 'reason' => 'required|string|min:5',
@@ -511,7 +511,7 @@ class LeaveController extends Controller {
         // ── Standard (daily) leave ────────────────────────────────────────
         $request->validate([
             'leave_type_id' => 'required|exists:leave_types,id',
-            'start_date' => 'required|date|after_or_equal:today',
+            'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
             'reason' => 'required|string|min:10',
             'is_half_day' => 'nullable|boolean',
@@ -1326,7 +1326,13 @@ class LeaveController extends Controller {
                     $q->whereHas('employee', fn($eq) => $eq->where('department_id', $request->department_id))
                 )
                 ->orderBy('start_date')
-                ->get();
+                ->get()
+                ->map(function (LeaveRequest $leave) {
+                    $data = $leave->toArray();
+                    $data['start_date'] = optional($leave->start_date)->format('Y-m-d');
+                    $data['end_date'] = optional($leave->end_date)->format('Y-m-d');
+                    return $data;
+                });
 
         return response()->json([
             'leaves' => $approved,
