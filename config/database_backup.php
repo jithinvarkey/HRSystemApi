@@ -3,7 +3,7 @@
 return [
     'mysqldump_path' => env(
         'MYSQLDUMP_PATH',
-        PHP_OS_FAMILY === 'Windows' ? 'E:\\Xampp_new\\mysql\\bin\\mysqldump.exe' : 'mysqldump'
+        PHP_OS_FAMILY === 'Windows' ? 'D:\Xampp_82\\mysql\\bin\\mysqldump.exe' : 'mysqldump'
     ),
 
     'directory' => storage_path('app/backups/database'),
