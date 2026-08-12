@@ -187,7 +187,7 @@ class PublicOnboardingController extends Controller
             $fields['filled_hdf'] = [
                 'title' => 'Filled HDF',
                 'type' => 'medical',
-                'required' => true,
+                'required' => false,
             ];
         }
 
