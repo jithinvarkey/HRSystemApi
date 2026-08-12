@@ -457,6 +457,8 @@ Route::prefix('v1')->group(function () {
               Route::put('/settings/monthly-leave-reminder',   [AdminController::class, 'updateMonthlyLeaveReminderSettings']);
               Route::get('/settings/unifonic',                 [AdminController::class, 'unifonicSettings']);
               Route::put('/settings/unifonic',                 [AdminController::class, 'updateUnifonicSettings']);
+              Route::get('/settings/hdf-template',             [AdminController::class, 'hdfTemplate']);
+              Route::post('/settings/hdf-template',            [AdminController::class, 'uploadHdfTemplate']);
               Route::post('/legacy-migration/import',           [LegacyMigrationController::class, 'import']);
 
             Route::prefix('users')->group(function () {
