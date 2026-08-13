@@ -481,7 +481,7 @@ class PolicyController extends Controller
         }
 
         $policy = Policy::findOrFail($id);
-        if (!$this->policyVisibleToCurrentUser($policy)) {
+        if (!$policy->is_published || !$this->policyVisibleToCurrentUser($policy)) {
             return response()->json(['message' => 'Not found.'], 404);
         }
 
