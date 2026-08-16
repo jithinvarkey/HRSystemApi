@@ -418,8 +418,10 @@ class PolicyController extends Controller
 
         if (!$this->isManager()) {
             $isForm = strtolower(trim((string) $policy->document_type)) === 'form';
+            $isInlinePreview = $request->boolean('inline')
+                || strtolower((string) $request->header('Sec-Fetch-Dest')) === 'empty';
 
-            if (!$request->boolean('inline')) {
+            if (!$isInlinePreview) {
                 if (!$isForm) {
                     return response()->json(['message' => 'Only form documents can be downloaded.'], 403);
                 }
