@@ -417,7 +417,20 @@ class PolicyController extends Controller
         }
 
         if (!$this->isManager()) {
-            if ($policy->attachment_mime !== 'application/pdf') {
+            $isForm = strtolower(trim((string) $policy->document_type)) === 'form';
+
+            if (!$request->boolean('inline')) {
+                if (!$isForm) {
+                    return response()->json(['message' => 'Only form documents can be downloaded.'], 403);
+                }
+
+                return Storage::disk($disk)->download(
+                    $policy->attachment_path,
+                    $policy->attachment_name ?: 'form'
+                );
+            }
+
+            if (strtolower((string) $policy->attachment_mime) !== 'application/pdf') {
                 return response()->json(['message' => 'This attachment is not available in secure preview format.'], 403);
             }
 
