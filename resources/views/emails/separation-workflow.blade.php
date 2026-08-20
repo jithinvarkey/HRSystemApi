@@ -11,7 +11,8 @@
   <tr><td style="background:#2563eb;padding:13px 32px;color:#fff;font-size:14px;font-weight:bold;text-transform:uppercase">
     @if($event === 'submitted') New Separation Request
     @elseif($event === 'manager_approved') Manager Approval Completed
-    @else Offboarding Tasks Assigned
+    @elseif($event === 'offboarding_tasks') Offboarding Tasks Assigned
+    @else Department Offboarding Tasks Completed
     @endif
   </td></tr>
   <tr><td style="padding:28px 32px">
@@ -20,8 +21,14 @@
       <p style="font-size:14px;line-height:1.6">A new separation request has been submitted and requires review.</p>
     @elseif($event === 'manager_approved')
       <p style="font-size:14px;line-height:1.6">The direct manager has approved this separation request. HR approval is now required.</p>
-    @else
+    @elseif($event === 'offboarding_tasks')
       <p style="font-size:14px;line-height:1.6">Offboarding has started. Please complete the following <strong>{{ ucfirst($taskCategory ?? '') }}</strong> tasks:</p>
+    @else
+      <p style="font-size:14px;line-height:1.6">
+        All <strong>{{ ucfirst($taskCategory ?? '') }}</strong> offboarding tasks have been resolved
+        @if($completedByName) by <strong>{{ $completedByName }}</strong>@endif.
+        HR may now review this department's checklist completion.
+      </p>
     @endif
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
@@ -31,8 +38,8 @@
       <tr><td style="padding:10px 14px;font-size:12px;color:#6b7280;font-weight:bold;border-top:1px solid #e5e7eb">Last Working Day</td><td style="padding:10px 14px;font-size:13px;border-top:1px solid #e5e7eb">{{ \Carbon\Carbon::parse($separation->last_working_day)->format('d M Y') }}</td></tr>
     </table>
 
-    @if($event === 'offboarding_tasks' && count($tasks))
-      <div style="font-size:13px;font-weight:bold;margin:18px 0 8px">Assigned tasks</div>
+    @if(in_array($event, ['offboarding_tasks', 'department_tasks_completed'], true) && count($tasks))
+      <div style="font-size:13px;font-weight:bold;margin:18px 0 8px">{{ $event === 'offboarding_tasks' ? 'Assigned tasks' : 'Resolved tasks' }}</div>
       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         @foreach($tasks as $task)
           <tr><td style="padding:10px 14px;font-size:13px;border-top:{{ $loop->first ? '0' : '1px' }} solid #e5e7eb">&#9744;&nbsp; {{ $task }}</td></tr>

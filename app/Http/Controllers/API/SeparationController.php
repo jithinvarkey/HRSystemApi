@@ -71,6 +71,9 @@ class SeparationController extends Controller
                 $sep->checklistItems->where('category', $category)->values()
             );
         }
+        $sep->checklistItems->each(function ($item) {
+            $item->setAttribute('completed_by_name', optional($item->completedBy)->name);
+        });
         return response()->json(['separation' => $sep]);
     }
 
@@ -328,12 +331,27 @@ class SeparationController extends Controller
         if (!$this->canUpdateChecklistItem($item, auth()->user())) {
             return response()->json(['message' => 'You can update only offboarding tasks assigned to your department.'], 403);
         }
+        $previousStatus = $item->status;
         $item->update([
             'status'       => $request->status,
             'notes'        => $request->notes,
             'completed_by' => in_array($request->status, ['completed']) ? auth()->id() : null,
             'completed_at' => in_array($request->status, ['completed']) ? now() : null,
         ]);
+        if ($previousStatus === 'pending' && in_array($request->status, ['completed', 'skipped', 'na'], true)) {
+            $categoryStillPending = OffboardingItem::where('separation_id', $sepId)
+                ->where('category', $item->category)
+                ->where('status', 'pending')
+                ->exists();
+            if (!$categoryStillPending) {
+                $separation = Separation::with(['employee', 'checklistItems'])->findOrFail($sepId);
+                $this->service->notifyDepartmentTasksCompleted(
+                    $separation,
+                    $item->category,
+                    auth()->user()?->name ?: 'Department Manager'
+                );
+            }
+        }
         return response()->json(['item' => $item->fresh()]);
     }
 
