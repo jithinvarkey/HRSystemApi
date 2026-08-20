@@ -56,6 +56,23 @@ class SeparationService
         }
     }
 
+    public function notifyDepartmentTasksCompleted(Separation $sep, string $category, string $completedByName): void
+    {
+        $sep->loadMissing('employee', 'checklistItems');
+        $items = $sep->checklistItems->where('category', $category);
+        if ($items->isEmpty() || $items->contains('status', 'pending')) return;
+
+        $recipients = $this->departmentRecipients($sep, 'hr');
+        $this->queueRecipients(
+            $sep,
+            'department_tasks_completed',
+            $recipients,
+            $items->map(fn ($item) => $item->title . ' — ' . strtoupper($item->status))->values()->all(),
+            $category,
+            $completedByName
+        );
+    }
+
     private function departmentRecipients(Separation $sep, string $category): array
     {
         $recipients = [];
@@ -93,7 +110,8 @@ class SeparationService
         string $event,
         array $recipients,
         array $tasks = [],
-        ?string $category = null
+        ?string $category = null,
+        ?string $completedByName = null
     ): void {
         foreach ($recipients as $recipient) {
             try {
@@ -102,7 +120,8 @@ class SeparationService
                     $event,
                     $recipient['name'] ?: 'Colleague',
                     $tasks,
-                    $category
+                    $category,
+                    $completedByName
                 ));
             } catch (\Throwable $e) {
                 Log::error('Separation notification email failed.', [

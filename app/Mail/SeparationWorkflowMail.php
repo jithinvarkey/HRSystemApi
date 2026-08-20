@@ -18,6 +18,7 @@ class SeparationWorkflowMail extends Mailable
         public string $recipientName,
         public array $tasks = [],
         public ?string $taskCategory = null,
+        public ?string $completedByName = null,
     ) {
         $this->separationUrl = rtrim((string) config('app.frontend_url', config('app.url')), '/')
             . '/separations?separation_id=' . $separation->id;
@@ -29,6 +30,7 @@ class SeparationWorkflowMail extends Mailable
             'submitted' => "New Separation Request - {$this->separation->reference}",
             'manager_approved' => "Separation Awaiting HR Approval - {$this->separation->reference}",
             'offboarding_tasks' => "Offboarding Tasks Assigned - {$this->separation->reference}",
+            'department_tasks_completed' => "Offboarding Tasks Completed - {$this->separation->reference}",
             default => "Separation Update - {$this->separation->reference}",
         };
 
