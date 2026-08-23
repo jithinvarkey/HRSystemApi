@@ -74,14 +74,14 @@ class PayrollService
     }
 
     /**
-     * Active employees eligible for payroll.
+     * Active and probationary employees eligible for payroll.
      *
      * The System Admin account is operational rather than payroll-eligible,
      * so employees linked to a super_admin user must never receive a payslip.
      */
     public function eligibleEmployees(): Collection
     {
-        return Employee::active()
+        return Employee::whereIn('status', ['active', 'probation'])
             ->whereDoesntHave('user.roles', fn ($query) => $query->where('name', 'super_admin'))
             ->get();
     }
