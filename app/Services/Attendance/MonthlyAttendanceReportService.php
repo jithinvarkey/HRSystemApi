@@ -18,6 +18,10 @@ class MonthlyAttendanceReportService
     private int $fullDayMinutes = 480;
     private array $weekendDays = [5, 6];
 
+    public function __construct(private AttendancePolicyService $attendancePolicy)
+    {
+    }
+
     public function download(Request $request)
     {
         $request->validate([
@@ -180,7 +184,14 @@ class MonthlyAttendanceReportService
         $firstIn = $log?->check_in ? $date . ' ' . $log->check_in : '';
         $lastOut = $log?->check_out ? $date . ' ' . $log->check_out : '';
         $total = $this->workedMinutes($day, $log);
-        $status = $log ? ucfirst(str_replace('_', ' ', (string) $log->status)) : 'Absent';
+        $reportStatus = $log
+            ? $this->attendancePolicy->statusForReport(
+                $log->check_in ? (string) $log->check_in : null,
+                (string) $log->status,
+                $log->source ? (string) $log->source : null
+            )
+            : 'absent';
+        $status = ucfirst(str_replace('_', ' ', $reportStatus));
         $note = trim((string) ($log?->notes ?? ''));
 
         if ($isWeekend) {
