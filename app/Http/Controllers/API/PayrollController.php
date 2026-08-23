@@ -329,6 +329,41 @@ class PayrollController extends Controller {
         ]);
     }
 
+    /** Remove a probation employee from a payroll that is still editable. */
+    public function removeProbationPayslip($payrollId, $payslipId)
+    {
+        $result = DB::transaction(function () use ($payrollId, $payslipId) {
+            $payroll = Payroll::lockForUpdate()->findOrFail($payrollId);
+
+            if (!in_array($payroll->status, ['draft', 'pending_approval'])) {
+                abort(422, 'Cannot remove an employee after payroll approval');
+            }
+
+            $payslip = Payslip::with('employee')
+                ->where('payroll_id', $payroll->id)
+                ->findOrFail($payslipId);
+
+            if ($payslip->employee?->status !== 'probation') {
+                abort(422, 'Only probation employees can be removed from payroll');
+            }
+
+            $payslip->delete();
+
+            $payroll->update([
+                'total_gross'      => $payroll->payslips()->sum('gross_salary'),
+                'total_deductions' => $payroll->payslips()->sum('total_deductions'),
+                'total_net'        => $payroll->payslips()->sum('net_salary'),
+            ]);
+
+            return $payroll->fresh()->loadCount('payslips');
+        });
+
+        return response()->json([
+            'message' => 'Probation employee removed from this payroll',
+            'payroll' => $result,
+        ]);
+    }
+
     /**
      * Reopen an approved/paid payroll — resets to pending_approval so payslips can be edited.
      */
