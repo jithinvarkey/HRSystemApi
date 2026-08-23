@@ -31,7 +31,7 @@ class MonthlyAttendanceReportService
         $this->loadAttendanceSettings();
 
         $employees = Employee::with(['department'])
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'probation'])
             ->when($request->department_id, fn($query) => $query->where('department_id', $request->department_id))
             ->orderBy('employee_code')
             ->get();
