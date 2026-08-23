@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\{Employee, Payslip, Payroll, LeaveRequest, LeaveAllocation, LeaveType,
                 AttendanceLog, Loan, LoanInstallment, Department};
 use App\Services\ExportService;
+use App\Services\Attendance\AttendancePolicyService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -13,7 +14,7 @@ class ReportController extends Controller
 {
     protected ExportService $export;
 
-    public function __construct(ExportService $export)
+    public function __construct(ExportService $export, private AttendancePolicyService $attendancePolicy)
     {
         $this->export = $export;
     }
@@ -164,7 +165,11 @@ class ReportController extends Controller
                 'check_in'   => $l->check_in  ? substr($l->check_in, 0, 5) : '—',
                 'check_out'  => $l->check_out ? substr($l->check_out, 0, 5) : '—',
                 'hours'      => $l->duration_label ?? '—',
-                'status'     => $l->status,
+                'status'     => $this->attendancePolicy->statusForReport(
+                    $l->check_in ? (string) $l->check_in : null,
+                    (string) $l->status,
+                    $l->source ? (string) $l->source : null
+                ),
                 'source'     => $l->source ?? 'system',
                 'notes'      => $l->notes ?? '',
             ]);

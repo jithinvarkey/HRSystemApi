@@ -160,6 +160,14 @@ class AttendanceController extends Controller
             ->orderBy('id', 'desc')
             ->paginate($perPage);
 
+        $data->getCollection()->each(function (AttendanceLog $log): void {
+            $log->status = $this->attendancePolicy->statusForReport(
+                $log->check_in ? (string) $log->check_in : null,
+                (string) $log->status,
+                $log->source ? (string) $log->source : null
+            );
+        });
+
         return response()->json($data);
     }
 
