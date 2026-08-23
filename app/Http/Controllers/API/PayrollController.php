@@ -153,11 +153,13 @@ class PayrollController extends Controller {
         return response()->json(['message' => 'Payroll rejected']);
     }
 
-    public function payslips($id) {
+    public function payslips(Request $request, $id) {
+        $perPage = min(max($request->integer('per_page', 100), 1), 1000);
+
         $payslips = Payslip::with(['employee.department'])
             ->where('payroll_id', $id)
             ->whereDoesntHave('employee.user.roles', fn ($query) => $query->where('name', 'super_admin'))
-            ->paginate(20);
+            ->paginate($perPage);
         return response()->json($payslips);
     }
 
