@@ -277,14 +277,18 @@ class PayrollController extends Controller {
             'transport_allowance' => 'sometimes|numeric|min:0',
             'other_allowances'    => 'sometimes|numeric|min:0',
             'gosi_employee'       => 'sometimes|numeric|min:0',
+            'leave_deduction'     => 'sometimes|numeric|min:0',
+            'loan_deduction'      => 'sometimes|numeric|min:0',
             'other_deductions'    => 'sometimes|numeric|min:0',
+            'unpaid_leave_days'   => 'sometimes|numeric|min:0',
             'absent_days'         => 'sometimes|integer|min:0',
             'notes'               => 'sometimes|string|nullable',
         ]);
 
         $data = $request->only([
             'basic_salary','housing_allowance','transport_allowance',
-            'other_allowances','gosi_employee','other_deductions','absent_days',
+            'other_allowances','gosi_employee','leave_deduction','loan_deduction',
+            'other_deductions','unpaid_leave_days','absent_days',
         ]);
 
         // Recalculate totals
@@ -293,11 +297,13 @@ class PayrollController extends Controller {
         $transport = $data['transport_allowance'] ?? $payslip->transport_allowance;
         $otherEarn = $data['other_allowances']    ?? $payslip->other_allowances;
         $gosiEmp   = $data['gosi_employee']       ?? $payslip->gosi_employee;
+        $leaveDed  = $data['leave_deduction']     ?? $payslip->leave_deduction;
+        $loanDed   = $data['loan_deduction']      ?? $payslip->loan_deduction;
         $otherDed  = $data['other_deductions']    ?? $payslip->other_deductions;
 
         $totalEarnings   = round($basic + $housing + $transport + $otherEarn, 2);
         $totalDeductions = round(
-            $gosiEmp + $otherDed + (float) $payslip->leave_deduction + (float) $payslip->loan_deduction,
+            $gosiEmp + $leaveDed + $loanDed + $otherDed,
             2
         );
         $netSalary       = round(max(0, $totalEarnings - $totalDeductions), 2);
