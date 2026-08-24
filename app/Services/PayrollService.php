@@ -440,12 +440,13 @@ class PayrollService
                 'gosi_emp'      => $p->gosi_employee,
                 'unpaid_leave'  => $p->leave_deduction,
                 'loan'          => $p->loan_deduction,
+                'other_deductions' => $p->other_deductions,
                 'net_salary'    => $p->net_salary,
             ]);
 
         return $this->exportService->csvDownload(
             'bank_transfer_' . now()->format('Ymd') . '.csv',
-            ['Emp Code','Name','Nationality','Bank','Account','Basic','Housing','Transport','Gross','GOSI(Emp)','Unpaid Leave','Loan','Net'],
+            ['Emp Code','Name','Nationality','Bank','Account','Basic','Housing','Transport','Gross','GOSI(Emp)','Unpaid Leave','Loan','Other Deductions','Net'],
             $rows
         );
     }

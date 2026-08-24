@@ -67,6 +67,7 @@ class ReportController extends Controller
                 'other_earn'   => number_format($p->other_allowances ?? 0, 2),
                 'gross'        => number_format($p->gross_salary ?? 0, 2),
                 'gosi'         => number_format($p->gosi_employee ?? 0, 2),
+                'other_deductions' => number_format($p->other_deductions ?? 0, 2),
                 'deductions'   => number_format($p->total_deductions ?? 0, 2),
                 'net'          => number_format($p->net_salary ?? 0, 2),
                 'working_days' => $p->working_days ?? '—',
@@ -256,7 +257,7 @@ class ReportController extends Controller
     {
         return match ($type) {
             'employees'      => ['Code','Name','Department','Designation','Hire Date','Nationality','Status','Email','Phone','Basic Salary (SAR)'],
-            'payroll'        => ['Code','Name','Department','Basic','Housing Allow.','Transport Allow.','Other Earnings','Gross','GOSI Employee','Total Deductions','Net Salary','Working Days','Absent Days'],
+            'payroll'        => ['Code','Name','Department','Basic','Housing Allow.','Transport Allow.','Other Earnings','Gross','GOSI Employee','Other Deductions','Total Deductions','Net Salary','Working Days','Absent Days'],
             'leave-balance'  => ['Code','Name','Department','Leave Type','Entitlement','Used','Pending','Remaining','Year'],
             'leave-requests' => ['Code','Name','Department','Leave Type','From','To','Days','Status','Reason','Approved By'],
             'attendance'     => ['Code','Name','Department','Date','Check In','Check Out','Hours','Status','Source','Notes'],

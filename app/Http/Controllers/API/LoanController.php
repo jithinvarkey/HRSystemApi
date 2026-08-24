@@ -728,6 +728,12 @@ class LoanController extends Controller {
      * @return JsonResponse
      */
     public function payInstallment(Request $request, int $loanId, int $instId): JsonResponse {
+        if (!$this->hasAnyRoleDB(['finance_manager', 'hr_manager'])) {
+            return response()->json([
+                'message' => 'Only the Finance Manager or HR Manager can mark an installment as paid.',
+            ], 403);
+        }
+
         $inst = LoanInstallment::where('loan_id', $loanId)->findOrFail($instId);
 
         if (!in_array($inst->status, ['pending', 'overdue'])) {
