@@ -203,7 +203,19 @@ class MonthlyAttendanceReportService
         }
 
         if ($approvedLeaves->isNotEmpty()) {
-            return [$date, $day->format('l'), $firstIn, $lastOut, $minimum, $minimum, 'Leave', $this->appendNote('', $note)];
+            $pendingDetails = $pendingLeaves->isNotEmpty()
+                ? 'Pending: ' . $this->leaveDetails($pendingLeaves, true)
+                : '';
+            return [
+                $date,
+                $day->format('l'),
+                $firstIn,
+                $lastOut,
+                $minimum,
+                $minimum,
+                'Leave',
+                $this->appendNote($pendingDetails, $note),
+            ];
         }
 
         if ($pendingLeaves->isNotEmpty()) {
