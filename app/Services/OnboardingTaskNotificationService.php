@@ -50,6 +50,12 @@ class OnboardingTaskNotificationService
 
             try {
                 Mail::to($recipients)->send(new OnboardingTasksAssignedMail($employee, $groupTasks, $group));
+                Log::info('Onboarding task notification sent.', [
+                    'employee_id' => $employee->id,
+                    'recipient_group' => $group,
+                    'recipients' => $recipients,
+                    'task_ids' => $groupTasks->pluck('id')->all(),
+                ]);
                 $results[$group] = ['sent' => true, 'recipients' => $recipients, 'error' => null];
             } catch (\Throwable $e) {
                 Log::warning('Onboarding task notification failed.', [
