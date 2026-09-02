@@ -33,6 +33,7 @@ class NotificationService
         ?array $departmentIds,
         ?array $roles,
         bool $includeEligibleProbation = false,
+        ?array $employeeIds = null,
     ): Collection
     {
         $query = Employee::query()->where(function ($statusQuery) use ($includeEligibleProbation) {
@@ -55,6 +56,8 @@ class NotificationService
                 ->whereIn('roles.name', $roles)
                 ->pluck('model_has_roles.model_id');
             $query->whereIn('user_id', $userIds);
+        } elseif ($audienceType === 'employees') {
+            $query->whereIn('id', $employeeIds ?? []);
         }
 
         return $query->pluck('id');
