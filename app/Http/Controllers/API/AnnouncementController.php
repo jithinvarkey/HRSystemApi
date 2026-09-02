@@ -279,6 +279,7 @@ class AnnouncementController extends Controller
             $announcement->audience_type ?? 'all',
             $announcement->target_department_ids,
             $announcement->target_roles,
+            true,
         );
         $reach = $audienceIds->count();
 
@@ -381,6 +382,7 @@ class AnnouncementController extends Controller
             $a->audience_type ?? 'all',
             $a->target_department_ids,
             $a->target_roles,
+            true,
         );
         $summary = \Illuminate\Support\Str::limit(strip_tags($a->body), 120);
         $this->notifications->notifyMany(

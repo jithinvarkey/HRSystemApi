@@ -41,7 +41,7 @@ class ProcessCommunications extends Command
             $a->update(['is_published' => true, 'published_at' => now()]);
 
             $ids = $notifications->resolveAudience(
-                $a->audience_type ?? 'all', $a->target_department_ids, $a->target_roles
+                $a->audience_type ?? 'all', $a->target_department_ids, $a->target_roles, true
             );
             $summary = Str::limit(strip_tags($a->body), 120);
             $notifications->notifyMany(
