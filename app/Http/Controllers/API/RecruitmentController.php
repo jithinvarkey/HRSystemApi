@@ -166,7 +166,7 @@ class RecruitmentController extends Controller {
     public function showApplication(Request $request, $id) {
         $departmentScope = $this->managerDepartmentScope($request);
         $app = $this->scopeApplications(JobApplication::query(), $departmentScope)
-            ->with(['jobPosting','interviews'])
+            ->with(['jobPosting','latestInterview'])
             ->findOrFail($id);
         return response()->json(['application' => $app]);
     }
