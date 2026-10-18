@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Mail\ApplicantRejectedMail;
+use App\Mail\LoanInstallmentSkippedMail;
+use App\Mail\RecruitmentCreatedNotificationMail;
+use App\Models\Department;
 use App\Models\Employee;
 use App\Models\JobApplication;
 use App\Models\JobPosting;
 use App\Models\Loan;
+use App\Models\LoanInstallment;
 use App\Models\LoanType;
 use App\Models\PerformanceCycle;
 use App\Models\PerformanceReview;
@@ -15,6 +20,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
@@ -55,7 +61,20 @@ class PerformanceRecruitmentLoanApiTest extends TestCase
         $this->employeeUser = User::factory()->create();
         $this->employeeUser->assignRole('employee');
 
-        $this->empRecord = Employee::factory()->create(['user_id' => $this->employeeUser->id]);
+        // The department manager is a real manager of this employee: same department and their direct manager.
+        // (Approvals and reviews are scoped to the manager's own team.)
+        $department = Department::factory()->create();
+        $managerRecord = Employee::factory()->create([
+            'user_id'       => $this->deptManager->id,
+            'department_id' => $department->id,
+        ]);
+        $department->update(['manager_id' => $managerRecord->id]);
+
+        $this->empRecord = Employee::factory()->create([
+            'user_id'       => $this->employeeUser->id,
+            'department_id' => $department->id,
+            'manager_id'    => $managerRecord->id,
+        ]);
     }
 
     // ── Performance ───────────────────────────────────────────────────────
@@ -187,6 +206,45 @@ class PerformanceRecruitmentLoanApiTest extends TestCase
     }
 
     /** @test */
+    public function job_created_by_non_hr_manager_notifies_hr_manager(): void
+    {
+        Mail::fake();
+        $hrStaff = User::factory()->create();
+        $hrStaff->assignRole('hr_staff');
+        $superAdminHrManager = User::factory()->create();
+        $superAdminHrManager->assignRole(['super_admin', 'hr_manager']);
+
+        $this->actingAs($hrStaff, 'sanctum')
+            ->postJson('/api/v1/recruitment/jobs', [
+                'title' => 'Payroll Specialist',
+                'employment_type' => 'full_time',
+            ])
+            ->assertCreated();
+
+        Mail::assertSent(RecruitmentCreatedNotificationMail::class, fn ($mail) =>
+            $mail->type === 'job'
+            && $mail->hasTo($this->hrManager->email)
+            && !$mail->hasTo($superAdminHrManager->email)
+            && $mail->record->title === 'Payroll Specialist'
+        );
+    }
+
+    /** @test */
+    public function job_created_by_hr_manager_does_not_send_notification(): void
+    {
+        Mail::fake();
+
+        $this->actingAs($this->hrManager, 'sanctum')
+            ->postJson('/api/v1/recruitment/jobs', [
+                'title' => 'HR Coordinator',
+                'employment_type' => 'full_time',
+            ])
+            ->assertCreated();
+
+        Mail::assertNotSent(RecruitmentCreatedNotificationMail::class);
+    }
+
+    /** @test */
     public function public_can_view_open_jobs(): void
     {
         JobPosting::factory()->create(['status' => 'open']);
@@ -207,9 +265,103 @@ class PerformanceRecruitmentLoanApiTest extends TestCase
         $this->postJson("/api/v1/jobs/{$job->id}/apply", [
             'applicant_name'  => 'John Smith',
             'applicant_email' => 'john@example.com',
+            'applicant_phone' => '0501234567',
         ])
         ->assertCreated()
         ->assertJson(['application' => ['job_posting_id' => $job->id]]);
+    }
+
+    /** @test */
+    public function public_application_notifies_hr_manager(): void
+    {
+        Mail::fake();
+        $job = JobPosting::factory()->create(['status' => 'open', 'title' => 'Accountant']);
+
+        $this->postJson("/api/v1/jobs/{$job->id}/apply", [
+            'applicant_name' => 'Sara Ahmed',
+            'applicant_email' => 'sara@example.com',
+            'applicant_phone' => '+966500000001',
+        ])->assertCreated();
+
+        Mail::assertSent(RecruitmentCreatedNotificationMail::class, fn ($mail) =>
+            $mail->type === 'application'
+            && $mail->hasTo($this->hrManager->email)
+            && $mail->record->applicant_email === 'sara@example.com'
+        );
+    }
+
+    /** @test */
+    public function application_added_by_hr_manager_does_not_send_notification(): void
+    {
+        Mail::fake();
+        $job = JobPosting::factory()->create(['status' => 'open']);
+
+        $this->actingAs($this->hrManager, 'sanctum')
+            ->postJson("/api/v1/recruitment/apply/{$job->id}", [
+                'applicant_name' => 'Internal Candidate',
+                'applicant_email' => 'internal@example.com',
+                'applicant_phone' => '+966500000002',
+            ])
+            ->assertCreated();
+
+        Mail::assertNotSent(RecruitmentCreatedNotificationMail::class);
+    }
+
+    /** @test */
+    public function hr_can_edit_applicant_details_without_changing_stage(): void
+    {
+        Mail::fake();
+        $newJob = JobPosting::factory()->create(['title' => 'Accountant']);
+        $app = JobApplication::factory()->create([
+            'job_posting_id' => JobPosting::factory()->create()->id,
+            'stage' => 'offer', 'expected_salary' => 8000, 'hr_notes' => 'Keep notes',
+        ]);
+        $this->actingAs($this->hrManager, 'sanctum')
+            ->putJson("/api/v1/recruitment/applications/{$app->id}", [
+                'applicant_name' => 'Updated Applicant', 'applicant_email' => 'updated@example.com',
+                'applicant_phone' => '0501234567', 'expected_salary' => null,
+                'available_from' => '2026-10-01', 'stage' => 'hired',
+                'job_posting_id' => $newJob->id,
+            ])->assertOk()->assertJsonPath('application.stage', 'offer')
+                ->assertJsonPath('application.job_posting.title', 'Accountant');
+        $this->assertDatabaseHas('job_applications', [
+            'id' => $app->id, 'applicant_name' => 'Updated Applicant',
+            'applicant_email' => 'updated@example.com', 'applicant_phone' => '0501234567',
+            'expected_salary' => null, 'hr_notes' => 'Keep notes', 'stage' => 'offer',
+            'job_posting_id' => $newJob->id, 'department_id' => $newJob->department_id,
+            'position_applied' => 'Accountant',
+        ]);
+        $this->putJson("/api/v1/recruitment/applications/{$app->id}", ['hr_notes' => 'Updated notes'])
+            ->assertOk()->assertJsonPath('application.hr_notes', 'Updated notes');
+        Mail::assertNothingSent();
+    }
+
+    /** @test */
+    public function applicant_details_require_hr_and_valid_data(): void
+    {
+        $app = JobApplication::factory()->create(['job_posting_id' => JobPosting::factory()->create()->id]);
+        $url = "/api/v1/recruitment/applications/{$app->id}";
+        // CEO is an access alias of HR Manager (see User::hasRole), so it may edit applicant details.
+        foreach (['hr_staff', 'finance_manager'] as $role) {
+            $user = User::factory()->create();
+            $user->assignRole($role);
+            $this->actingAs($user, 'sanctum')->putJson($url, ['job_posting_id' => $app->job_posting_id])->assertForbidden();
+            $this->putJson($url, ['hr_notes' => 'Changed'])->assertForbidden();
+        }
+        $admin = User::factory()->create();
+        $admin->assignRole('super_admin');
+        $this->actingAs($admin, 'sanctum')->putJson($url, ['applicant_name' => 'Admin updated'])
+            ->assertOk()->assertJsonPath('application.applicant_name', 'Admin updated');
+        $this->actingAs($this->employeeUser, 'sanctum')->putJson($url, ['applicant_name' => 'Changed'])->assertForbidden();
+        $this->actingAs($this->deptManager, 'sanctum')->putJson($url, ['expected_salary' => 100])->assertForbidden();
+        $this->actingAs($this->hrManager, 'sanctum')->putJson($url, [
+            'applicant_name' => '', 'applicant_email' => 'invalid', 'applicant_phone' => '',
+            'expected_salary' => -1, 'available_from' => 'invalid',
+            'job_posting_id' => 999999999,
+        ])->assertUnprocessable()->assertJsonValidationErrors([
+            'applicant_name', 'applicant_email', 'applicant_phone', 'expected_salary', 'available_from',
+            'job_posting_id',
+        ]);
     }
 
     /** @test */
@@ -228,6 +380,35 @@ class PerformanceRecruitmentLoanApiTest extends TestCase
     }
 
     /** @test */
+    public function rejecting_an_applicant_sends_a_rejection_email(): void
+    {
+        Mail::fake();
+
+        $job = JobPosting::factory()->create([
+            'status' => 'open',
+            'title' => 'Operations Officer',
+        ]);
+        $app = JobApplication::factory()->create([
+            'job_posting_id' => $job->id,
+            'applicant_name' => 'Amjad Almutairi',
+            'applicant_email' => 'amjad@example.com',
+            'stage' => 'applied',
+        ]);
+
+        $this->actingAs($this->hrManager, 'sanctum')
+            ->putJson("/api/v1/recruitment/applications/{$app->id}/stage", ['stage' => 'rejected'])
+            ->assertOk()
+            ->assertJsonPath('application.stage', 'rejected')
+            ->assertJsonPath('email_sent', true);
+
+        Mail::assertSent(
+            ApplicantRejectedMail::class,
+            fn (ApplicantRejectedMail $mail) => $mail->hasTo('amjad@example.com')
+                && $mail->application->is($app)
+        );
+    }
+
+    /** @test */
     public function recruitment_stats_return_correct_structure(): void
     {
         $this->actingAs($this->hrManager, 'sanctum')
@@ -240,6 +421,61 @@ class PerformanceRecruitmentLoanApiTest extends TestCase
     }
 
     // ── Loans ─────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function only_finance_or_hr_manager_can_mark_an_installment_as_paid(): void
+    {
+        $loan = Loan::factory()->create([
+            'employee_id' => $this->empRecord->id,
+            'status' => 'disbursed',
+        ]);
+        $installment = LoanInstallment::factory()->create([
+            'loan_id' => $loan->id,
+            'status' => 'pending',
+            'payslip_id' => null,
+        ]);
+
+        $this->actingAs($this->deptManager, 'sanctum')
+            ->postJson("/api/v1/loans/{$loan->id}/installments/{$installment->id}/pay")
+            ->assertForbidden();
+
+        $this->actingAs($this->financeManager, 'sanctum')
+            ->postJson("/api/v1/loans/{$loan->id}/installments/{$installment->id}/pay")
+            ->assertOk();
+    }
+
+    /** @test */
+    public function skipping_an_installment_notifies_hr_and_finance_managers(): void
+    {
+        Mail::fake();
+        $loan = Loan::factory()->create([
+            'employee_id' => $this->empRecord->id,
+            'status' => 'disbursed',
+        ]);
+        $installment = LoanInstallment::factory()->create([
+            'loan_id' => $loan->id,
+            'installment_no' => 1,
+            'due_date' => '2026-09-01',
+            'status' => 'pending',
+            'payslip_id' => null,
+        ]);
+
+        $this->actingAs($this->deptManager, 'sanctum')
+            ->postJson("/api/v1/loans/{$loan->id}/installments/{$installment->id}/skip", [
+                'notes' => 'Employee requested a one-month deferment.',
+            ])
+            ->assertOk();
+
+        Mail::assertQueued(LoanInstallmentSkippedMail::class, 2);
+        Mail::assertQueued(LoanInstallmentSkippedMail::class, fn ($mail) =>
+            $mail->hasTo($this->hrManager->email)
+            && $mail->skippedInstallment->is($installment)
+        );
+        Mail::assertQueued(LoanInstallmentSkippedMail::class, fn ($mail) =>
+            $mail->hasTo($this->financeManager->email)
+            && $mail->replacementInstallment->due_date->toDateString() === '2026-10-01'
+        );
+    }
 
     /** @test */
     public function employee_can_submit_loan_request(): void

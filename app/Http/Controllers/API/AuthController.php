@@ -10,7 +10,9 @@ use App\Models\User;
 use App\Services\LoginActivityService;
 use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
+use App\Support\Locale\SupportedLocales;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -45,9 +47,17 @@ class AuthController extends Controller
                 ]);
 
                 throw ValidationException::withMessages([
-                    'email' => ['The provided credentials are incorrect.'],
+                    'email' => [__('The provided credentials are incorrect.')],
                 ]);
             }
+        }
+
+        if ($user->hasClosedEmployment()) {
+            $this->loginActivityService->record($request, $user, 'login_failed', 'failed', $identifier, [
+                'reason' => 'account_closed',
+            ]);
+
+            return response()->json(['message' => __('Your account is no longer active. Please contact HR.')], 403);
         }
 
         if ($this->isOtpExempt($user)) {
@@ -74,7 +84,7 @@ class AuthController extends Controller
             'otp_required' => true,
             'challenge_token' => $challenge->challenge_token,
             'expires_in' => $this->otpService->expiresInSeconds($challenge),
-            'message' => 'OTP sent to your email' . ($this->hasMobileNumber($user) ? ' and mobile number.' : '.'),
+            'message' => $this->hasMobileNumber($user) ? __('OTP sent to your email and mobile number.') : __('OTP sent to your email.'),
         ]);
     }
 
@@ -104,6 +114,14 @@ class AuthController extends Controller
         }
 
         $user = $challenge->user;
+        if ($user->hasClosedEmployment()) {
+            $this->loginActivityService->record($request, $user, 'login_failed', 'failed', $user->email, [
+                'reason' => 'account_closed',
+            ]);
+
+            return response()->json(['message' => __('Your account is no longer active. Please contact HR.')], 403);
+        }
+
         $tokenResult = $user->createToken('hrms-token');
         $token = $tokenResult->plainTextToken;
 
@@ -134,13 +152,17 @@ class AuthController extends Controller
         );
 
         if (!$challenge) {
-            throw ValidationException::withMessages(['otp' => ['This OTP request is invalid.']]);
+            throw ValidationException::withMessages(['otp' => [__('This OTP request is invalid.')]]);
+        }
+
+        if ($challenge->user?->hasClosedEmployment()) {
+            return response()->json(['message' => __('Your account is no longer active. Please contact HR.')], 403);
         }
 
         $challenge = $this->otpService->resend($challenge);
 
         return response()->json([
-            'message' => 'A new OTP has been sent.',
+            'message' => __('A new OTP has been sent.'),
             'expires_in' => $this->otpService->expiresInSeconds($challenge),
         ]);
     }
@@ -161,7 +183,7 @@ class AuthController extends Controller
         }
 
         return response()->json([
-            'message' => 'Logged out successfully.'
+            'message' => __('Logged out successfully.')
         ]);
     }
 
@@ -179,13 +201,18 @@ class AuthController extends Controller
 
         if (!Hash::check($request->current_password, $request->user()->password)) {
             throw ValidationException::withMessages([
-                'current_password' => ['Current password is incorrect.'],
+                'current_password' => [__('Current password is incorrect.')],
             ]);
         }
 
-        $request->user()->update(['password' => Hash::make($request->password)]);
+        $user = $request->user();
+        $user->update(['password' => Hash::make($request->password)]);
 
-        return response()->json(['message' => 'Password changed successfully']);
+        // Sign out every other device; the current session stays valid.
+        $currentTokenId = optional($user->currentAccessToken())->id;
+        $user->tokens()->when($currentTokenId, fn ($q) => $q->where('id', '!=', $currentTokenId))->delete();
+
+        return response()->json(['message' => __('Password changed successfully')]);
     }
 
     public function forgotPassword(Request $request): JsonResponse
@@ -197,9 +224,10 @@ class AuthController extends Controller
             ->whereRaw('LOWER(email) = ?', [strtolower((string) $request->input('email'))])
             ->first();
 
-        if (!$user) {
+        // Closed accounts get the same answer as unknown emails (no OTP is sent, nothing to probe).
+        if (!$user || $user->hasClosedEmployment()) {
             return response()->json([
-                'message' => 'If an account exists for that email, an OTP has been sent.',
+                'message' => __('If an account exists for that email, an OTP has been sent.'),
             ]);
         }
 
@@ -209,7 +237,7 @@ class AuthController extends Controller
             'otp_required' => true,
             'challenge_token' => $challenge->challenge_token,
             'expires_in' => $this->otpService->expiresInSeconds($challenge),
-            'message' => 'OTP sent to your email' . ($this->hasMobileNumber($user) ? ' and mobile number.' : '.'),
+            'message' => $this->hasMobileNumber($user) ? __('OTP sent to your email and mobile number.') : __('OTP sent to your email.'),
         ]);
     }
 
@@ -228,9 +256,15 @@ class AuthController extends Controller
                 LoginOtp::PURPOSE_PASSWORD_RESET
             );
 
-            $challenge->user->forceFill(['password' => Hash::make((string) $request->input('password'))])->save();
+            if ($challenge->user->hasClosedEmployment()) {
+                return response()->json(['message' => __('Your account is no longer active. Please contact HR.')], 403);
+            }
 
-            return response()->json(['message' => 'Password has been reset successfully.']);
+            $challenge->user->forceFill(['password' => Hash::make((string) $request->input('password'))])->save();
+            // A reset password must also end every session opened with the old one.
+            $challenge->user->tokens()->delete();
+
+            return response()->json(['message' => __('Password has been reset successfully.')]);
         }
 
         $request->validate([
@@ -239,18 +273,36 @@ class AuthController extends Controller
             'password' => 'required|min:8|confirmed',
         ]);
 
+        $resetUser = User::query()->whereRaw('LOWER(email) = ?', [strtolower((string) $request->input('email'))])->first();
+        if ($resetUser?->hasClosedEmployment()) {
+            return response()->json(['message' => __('Your account is no longer active. Please contact HR.')], 403);
+        }
+
         $status = Password::reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function (User $user, string $password): void {
                 $user->forceFill(['password' => Hash::make($password)])->save();
+                $user->tokens()->delete();
             }
         );
 
         if ($status === Password::PASSWORD_RESET) {
-            return response()->json(['message' => 'Password has been reset successfully.']);
+            return response()->json(['message' => __('Password has been reset successfully.')]);
         }
 
         throw ValidationException::withMessages(['email' => [__($status)]]);
+    }
+
+    /** Saves the UI language on the account; emails to this user are sent in it. */
+    public function updateLanguage(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'language' => ['required', 'string', Rule::in(SupportedLocales::ALL)],
+        ]);
+
+        $request->user()->forceFill(['preferred_language' => $data['language']])->save();
+
+        return response()->json(['preferred_language' => $data['language']]);
     }
 
     protected function userPayload(User $user): array
@@ -261,18 +313,22 @@ class AuthController extends Controller
             'id'          => $user->id,
             'name'        => $user->name,
             'email'       => $user->email,
+            'preferred_language' => SupportedLocales::normalize($user->preferred_language),
             'roles'       => $user->getRoleNames()->values()->toArray(),
             'permissions' => $user->getAllPermissions()->pluck('name')->values()->toArray(),
             'employee'    => $user->employee ? [
                 'id'         => $user->employee->id,
                 'code'       => $user->employee->employee_code,
                 'full_name'  => $user->employee->full_name,
+                'preferred_communication_language' => SupportedLocales::normalize($user->employee->preferred_communication_language),
                 'avatar_url' => $user->employee->avatar_url,
                 'department' => optional($user->employee->department)->name,
+                'department_ar' => optional($user->employee->department)->name_ar,
                 'departmentId'=>optional($user->employee)->department_id,
                 'departmentCode'=>optional($user->employee->department)->code,
                 'isDepartmentManager'=>(int) optional($user->employee->department)->manager_id === (int) $user->employee->id,
                 'designation' => optional($user->employee->designation)->title ?? optional($user->employee->designation)->name,
+                'designation_ar' => optional($user->employee->designation)->title_ar,
                 'designationId'=>optional($user->employee)->designation_id,
             ] : null,
         ];

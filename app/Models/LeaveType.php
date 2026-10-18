@@ -1,8 +1,11 @@
 <?php
 namespace App\Models;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class LeaveType extends Model {
+    use HasFactory;
+
     public function isAnnual(): bool
     {
         return (bool) $this->is_annual || strtoupper((string) $this->code) === 'AL'
@@ -18,7 +21,7 @@ class LeaveType extends Model {
     }
 
     protected $fillable = [
-        'name','code','days_allowed','is_paid','carry_forward',
+        'name','name_ar','code','days_allowed','is_paid','carry_forward',
         'max_carry_forward','carry_forward_all','requires_document','is_active','description',
         'is_hourly','monthly_hours_limit','exempt_department_codes',
         'skip_manager_approval','is_annual',

@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Mail\NewEmployeeJoinedMail;
 use App\Models\Employee;
 use App\Services\Communications\NotificationService;
+use App\Support\Locale\RecipientLocale;
+use App\Support\Locale\SupportedLocales;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -60,13 +62,35 @@ class NewEmployeeJoiningAnnouncementService
                         ->unique()
                         ->values();
 
-                    if ($recipientEmails->isNotEmpty()) {
-                        $primaryEmail = $recipientEmails->shift();
-                        $mail = Mail::to($primaryEmail);
-                        if ($recipientEmails->isNotEmpty()) {
-                            $mail->bcc($recipientEmails->all());
+                    // One BCC message per language, so each colleague reads the announcement in their own language.
+                    $byLocale = $recipientEmails->groupBy(
+                        fn ($email) => RecipientLocale::forEmail($email) ?? SupportedLocales::DEFAULT
+                    );
+                    // A failed language group must not undo the groups already delivered: the command runs every
+                    // 15 minutes, so rolling back would re-send the announcement to them all day long.
+                    $delivered = 0;
+                    $lastError = null;
+                    foreach ($byLocale as $locale => $emails) {
+                        try {
+                            $emails = $emails->values();
+                            $primaryEmail = $emails->shift();
+                            $mail = Mail::to($primaryEmail)->locale($locale);
+                            if ($emails->isNotEmpty()) {
+                                $mail->bcc($emails->all());
+                            }
+                            $mail->send(new NewEmployeeJoinedMail($newEmployee));
+                            $delivered++;
+                        } catch (\Throwable $e) {
+                            $lastError = $e;
+                            Log::error('New employee joining announcement failed for one language group.', [
+                                'employee_id' => $newEmployee->id,
+                                'locale' => $locale,
+                                'error' => $e->getMessage(),
+                            ]);
                         }
-                        $mail->send(new NewEmployeeJoinedMail($newEmployee, 'Colleagues'));
+                    }
+                    if ($delivered === 0 && $lastError) {
+                        throw $lastError;
                     }
 
                     $locked->forceFill(['joining_announcement_sent_at' => now()])->save();

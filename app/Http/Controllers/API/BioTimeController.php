@@ -15,6 +15,28 @@ class BioTimeController extends Controller {
 
     public function __construct(BioTimeService $biotime) {
         $this->biotime = $biotime;
+
+        // Device configuration, credentials and raw punch logs are HR-only (matches the BioTime nav entry).
+        $this->middleware(function ($request, $next) {
+            if (!$this->isHRAdmin()) {
+                return response()->json(['message' => __('Unauthorized.')], 403);
+            }
+            return $next($request);
+        });
+    }
+
+    private function isHRAdmin(): bool {
+        $user = auth()->user();
+        if (!$user) {
+            return false;
+        }
+
+        return \DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $user->id)
+            ->where('model_has_roles.model_type', get_class($user))
+            ->whereIn('roles.name', ['super_admin', 'ceo', 'hr_manager', 'hr_staff'])
+            ->exists();
     }
 
     // ── CRUD: Devices ─────────────────────────────────────────────────────
@@ -62,7 +84,7 @@ class BioTimeController extends Controller {
 
     public function destroy($id) {
         AttendanceDevice::findOrFail($id)->delete();
-        return response()->json(['message' => 'Device deleted.']);
+        return response()->json(['message' => __('Device deleted.')]);
     }
 
     // ── Test connection ───────────────────────────────────────────────────
@@ -83,7 +105,7 @@ class BioTimeController extends Controller {
     public function sync(Request $request, $id) {
         $device = AttendanceDevice::findOrFail($id);
         if (!$device->is_active) {
-            return response()->json(['message' => 'Device is inactive.'], 422);
+            return response()->json(['message' => __('Device is inactive.')], 422);
         }
 
 //        $from = $request->from ? Carbon::parse($request->from)->startOfDay() : now()->subDays(30)->startOfDay();
@@ -137,7 +159,7 @@ class BioTimeController extends Controller {
         $devices = AttendanceDevice::where('is_active', true)->where('brand', 'zkteco')->get();
 
         if ($devices->isEmpty()) {
-            return response()->json(['message' => 'No active ZKTeco devices configured.']);
+            return response()->json(['message' => __('No active ZKTeco devices configured.')]);
         }
 
         $since = now()->subDays((int) ($request->days ?? 1))->startOfDay();

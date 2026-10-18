@@ -314,7 +314,7 @@ class MonthlyAttendanceReportService
         $zip = new \ZipArchive();
 
         if ($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
-            abort(500, 'Could not create attendance report.');
+            abort(500, __('Could not create attendance report.'));
         }
 
         $sheetNames = $this->uniqueSheetNames(array_column($sheets, 'name'));
@@ -382,16 +382,17 @@ class MonthlyAttendanceReportService
 
         return array_map(function (string $name) use (&$used) {
             $base = trim(preg_replace('/[\[\]\:\*\?\/\\\\]/', ' ', $name)) ?: 'Sheet';
-            $base = substr($base, 0, 31);
+            // Excel's 31 limit is in characters; byte substr would split Arabic names into invalid UTF-8.
+            $base = mb_substr($base, 0, 31);
             $candidate = $base;
             $i = 2;
 
-            while (isset($used[strtolower($candidate)])) {
+            while (isset($used[mb_strtolower($candidate)])) {
                 $suffix = ' ' . $i++;
-                $candidate = substr($base, 0, 31 - strlen($suffix)) . $suffix;
+                $candidate = mb_substr($base, 0, 31 - strlen($suffix)) . $suffix;
             }
 
-            $used[strtolower($candidate)] = true;
+            $used[mb_strtolower($candidate)] = true;
             return $candidate;
         }, $names);
     }

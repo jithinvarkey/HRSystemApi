@@ -51,7 +51,7 @@ class PolicyController extends Controller
     {
         return $this->isManager()
             ? null
-            : response()->json(['message' => 'You are not allowed to manage policies.'], 403);
+            : response()->json(['message' => __('You are not allowed to manage policies.')], 403);
     }
 
     private function employeeId(): ?int
@@ -191,7 +191,7 @@ class PolicyController extends Controller
         ]);
         $audience = $this->normalizeAudience($request);
         if ($audience['audience_type'] === 'departments' && empty($audience['target_department_ids'])) {
-            return response()->json(['message' => 'Select at least one department, or choose all departments.'], 422);
+            return response()->json(['message' => __('Select at least one department, or choose all departments.')], 422);
         }
         $data = array_merge($data, $audience);
         $data['slug']      = $this->uniqueSlug($data['name']);
@@ -217,7 +217,7 @@ class PolicyController extends Controller
         if ($request->has('audience_type') || $request->has('target_department_ids')) {
             $audience = $this->normalizeAudience($request);
             if ($audience['audience_type'] === 'departments' && empty($audience['target_department_ids'])) {
-                return response()->json(['message' => 'Select at least one department, or choose all departments.'], 422);
+                return response()->json(['message' => __('Select at least one department, or choose all departments.')], 422);
             }
             $data = array_merge($data, $audience);
         }
@@ -230,7 +230,7 @@ class PolicyController extends Controller
     {
         if ($deny = $this->ensureManager()) return $deny;
         PolicyCategory::findOrFail($id)->delete();
-        return response()->json(['message' => 'Category deleted.']);
+        return response()->json(['message' => __('Category deleted.')]);
     }
 
     // ── Policies ──────────────────────────────────────────────────────────
@@ -302,7 +302,7 @@ class PolicyController extends Controller
         $policy = Policy::with(['category', 'creator:id,name'])->withCount('reads')->findOrFail($id);
 
         if ((!$this->isManager() && !$policy->is_published) || !$this->policyVisibleToCurrentUser($policy)) {
-            return response()->json(['message' => 'Not found.'], 404);
+            return response()->json(['message' => __('Not found.')], 404);
         }
 
         $empId = $this->employeeId();
@@ -346,7 +346,7 @@ class PolicyController extends Controller
 
         $audience = $this->normalizeAudience($request);
         if ($audience['audience_type'] === 'departments' && empty($audience['target_department_ids'])) {
-            return response()->json(['message' => 'Select at least one department, or choose all departments.'], 422);
+            return response()->json(['message' => __('Select at least one department, or choose all departments.')], 422);
         }
 
         $policy = new Policy([
@@ -379,13 +379,13 @@ class PolicyController extends Controller
         }
 
         return response()->json([
-            'message' => 'Policy created.',
+            'message' => __('Policy created.'),
             'policy'  => $policy->load(['category', 'creator:id,name']),
         ], 201);
     }
 
     /** Notify every targeted active employee about a policy. */
-    private function notifyPolicyAudience(Policy $policy, string $action): void
+    private function notifyPolicyAudience(Policy $policy, string $action, string $event = 'published'): void
     {
         $departmentIds = $this->effectiveDepartmentIds($policy->loadMissing('category'));
         $ids = $this->notifications->resolveAudience(
@@ -405,6 +405,11 @@ class PolicyController extends Controller
             $policy->title,
             $emailMessage,
             rtrim((string) config('app.frontend_url'), '/') . '/policies',
+            null,
+            null,
+            // Email summary is rendered in each recipient's language (lang/*/mail_communications.php).
+            'policy_message.' . ($event === 'updated' ? 'updated' : ($policy->requires_acknowledgement ? 'requires_ack' : 'published')),
+            ['version' => $policy->version],
         );
     }
 
@@ -432,13 +437,19 @@ class PolicyController extends Controller
 
         $oldVersion = $policy->version;
         $wasPublished = (bool) $policy->is_published;
-        $audience = $this->normalizeAudience($request);
-        if ($audience['audience_type'] === 'departments' && empty($audience['target_department_ids'])) {
-            return response()->json(['message' => 'Select at least one department, or choose all departments.'], 422);
+        // Only touch the audience when the request actually sends it; a partial update
+        // (e.g. publish toggle) must not silently widen a department-targeted policy to "all".
+        $audienceSent = $request->has('audience_type') || $request->has('target_department_ids');
+        $audience = $audienceSent ? $this->normalizeAudience($request) : null;
+        if ($audience && $audience['audience_type'] === 'departments' && empty($audience['target_department_ids'])) {
+            return response()->json(['message' => __('Select at least one department, or choose all departments.')], 422);
         }
+        unset($data['audience_type'], $data['target_department_ids']);
         $policy->fill($data);
-        $policy->audience_type = $audience['audience_type'];
-        $policy->target_department_ids = $audience['target_department_ids'];
+        if ($audience) {
+            $policy->audience_type = $audience['audience_type'];
+            $policy->target_department_ids = $audience['target_department_ids'];
+        }
         if ($request->has('requires_acknowledgement')) $policy->requires_acknowledgement = $request->boolean('requires_acknowledgement');
         if ($request->has('mandatory'))                $policy->mandatory = $request->boolean('mandatory');
         if ($request->has('is_published'))             $policy->is_published = $request->boolean('is_published');
@@ -464,11 +475,11 @@ class PolicyController extends Controller
                 $policy->requires_acknowledgement ? 'requires your acknowledgement' : 'has been published'
             );
         } elseif ($versionChanged && $policy->is_published && $policy->requires_acknowledgement) {
-            $this->notifyPolicyAudience($policy, 'updated to v' . $policy->version . ' - please re-acknowledge');
+            $this->notifyPolicyAudience($policy, 'updated to v' . $policy->version . ' - please re-acknowledge', 'updated');
         }
 
         return response()->json([
-            'message' => 'Policy updated.',
+            'message' => __('Policy updated.'),
             'policy'  => $policy->load(['category', 'creator:id,name']),
         ]);
     }
@@ -484,7 +495,7 @@ class PolicyController extends Controller
         }
         $policy->delete();
 
-        return response()->json(['message' => 'Policy deleted.']);
+        return response()->json(['message' => __('Policy deleted.')]);
     }
 
     public function downloadAttachment(Request $request, int $id): StreamedResponse|JsonResponse
@@ -492,13 +503,13 @@ class PolicyController extends Controller
         $policy = Policy::findOrFail($id);
 
         if ((!$this->isManager() && !$policy->is_published) || !$this->policyVisibleToCurrentUser($policy)) {
-            return response()->json(['message' => 'Not found.'], 404);
+            return response()->json(['message' => __('Not found.')], 404);
         }
 
         $disk = Storage::disk('local')->exists($policy->attachment_path ?? '') ? 'local' : 'public';
 
         if (!$policy->attachment_path || !Storage::disk($disk)->exists($policy->attachment_path)) {
-            return response()->json(['message' => 'No attachment.'], 404);
+            return response()->json(['message' => __('No attachment.')], 404);
         }
 
         if (!$this->isManager()) {
@@ -508,7 +519,7 @@ class PolicyController extends Controller
 
             if (!$isInlinePreview) {
                 if (!$isForm) {
-                    return response()->json(['message' => 'Only form documents can be downloaded.'], 403);
+                    return response()->json(['message' => __('Only form documents can be downloaded.')], 403);
                 }
 
                 return Storage::disk($disk)->download(
@@ -518,7 +529,7 @@ class PolicyController extends Controller
             }
 
             if (strtolower((string) $policy->attachment_mime) !== 'application/pdf') {
-                return response()->json(['message' => 'This attachment is not available in secure preview format.'], 403);
+                return response()->json(['message' => __('This attachment is not available in secure preview format.')], 403);
             }
 
             return Storage::disk($disk)->response($policy->attachment_path, 'policy.pdf', [
@@ -577,12 +588,12 @@ class PolicyController extends Controller
     {
         $empId = $this->employeeId();
         if (!$empId) {
-            return response()->json(['message' => 'Only employees can acknowledge policies.'], 422);
+            return response()->json(['message' => __('Only employees can acknowledge policies.')], 422);
         }
 
         $policy = Policy::findOrFail($id);
         if (!$policy->is_published || !$this->policyVisibleToCurrentUser($policy)) {
-            return response()->json(['message' => 'Not found.'], 404);
+            return response()->json(['message' => __('Not found.')], 404);
         }
 
         $ack = PolicyAcknowledgement::updateOrCreate(
@@ -595,7 +606,7 @@ class PolicyController extends Controller
         );
 
         return response()->json([
-            'message'         => 'Policy acknowledged.',
+            'message'         => __('Policy acknowledged.'),
             'acknowledgement' => $ack,
         ]);
     }
@@ -659,7 +670,7 @@ class PolicyController extends Controller
             '/policies', $policy->id,
         );
 
-        return response()->json(['message' => "Reminder sent to {$sent} employees.", 'count' => $sent]);
+        return response()->json(['message' => __('Reminder sent to :count employees.', ['count' => $sent]), 'count' => $sent]);
     }
 
     /**

@@ -88,7 +88,7 @@ class RecruitmentController extends Controller {
         $this->ensureCanManageRecruitment($request);
         $departmentScope = $this->managerDepartmentScope($request);
         $job = $this->scopeJobs(JobPosting::query(), $departmentScope)->findOrFail($id);
-        $data = $request->all();
+        $data = $request->except(['created_by']);
 
         if ($departmentScope !== null) {
             unset($data['department_id']);
@@ -105,7 +105,7 @@ class RecruitmentController extends Controller {
         $this->ensureCanManageRecruitment($request);
         $departmentScope = $this->managerDepartmentScope($request);
         $this->scopeJobs(JobPosting::query(), $departmentScope)->findOrFail($id)->delete();
-        return response()->json(['message' => 'Job posting deleted']);
+        return response()->json(['message' => __('Job posting deleted')]);
     }
 
     public function apply(Request $request, $jobId) {
@@ -137,12 +137,16 @@ class RecruitmentController extends Controller {
             ? $request->file('cv_path')->store("recruitment/cvs/{$jobId}", 'public')
             : null;
 
+        // Only recruiters may place an applicant directly into a later stage;
+        // public/self-service applicants always start at "applied".
+        $canSetStage = $isHR || $departmentScope > 0;
+
         $application = JobApplication::create(array_merge(
             $request->only(['applicant_name','applicant_email','applicant_phone','expected_salary','available_from','cover_letter_text']),
             [
                 'job_posting_id' => $jobId,
                 'cv_path'        => $cvPath,
-                'stage'          => $request->stage ?? 'applied',
+                'stage'          => $canSetStage ? ($request->stage ?? 'applied') : 'applied',
             ]
         ));
 
@@ -150,7 +154,7 @@ class RecruitmentController extends Controller {
             $this->service->notifyHrManagersOfNewApplication($application, $request->user());
         }
 
-        return response()->json(['message' => 'Application submitted', 'application' => $application->load('jobPosting')], 201);
+        return response()->json(['message' => __('Application submitted'), 'application' => $application->load('jobPosting')], 201);
     }
 
     public function publicApply(Request $request, $jobId) { return $this->apply($request, $jobId); }
@@ -162,7 +166,7 @@ class RecruitmentController extends Controller {
             ->with(['jobPosting.department'])
             ->when($request->job_posting_id, fn($q) => $q->where('job_posting_id', $request->job_posting_id))
             ->when($request->stage, fn($q) => $q->where('stage', $request->stage))
-            ->orderBy('created_at','desc')->paginate(20);
+            ->orderBy('created_at','desc')->paginate(min(max((int) $request->input('per_page', 20), 1), 200));
         $this->hideExpectedSalary($apps->getCollection(), $request);
         return response()->json($apps);
     }
@@ -203,7 +207,7 @@ class RecruitmentController extends Controller {
             $data['position_applied'] = $job->title;
         }
         $app->update($data);
-        return response()->json(['application' => $app->fresh(['jobPosting.department', 'jobPosting.designation']), 'message' => 'Applicant details updated.']);
+        return response()->json(['application' => $app->fresh(['jobPosting.department', 'jobPosting.designation']), 'message' => __('Applicant details updated.')]);
     }
 
     public function updateStage(Request $request, $id) {
@@ -215,15 +219,21 @@ class RecruitmentController extends Controller {
         $departmentScope = $this->managerDepartmentScope($request);
         $app = $this->scopeApplications(JobApplication::query(), $departmentScope)->findOrFail($id);
 
+        if ($app->stage === 'hired') {
+            return response()->json([
+                'message' => __('This applicant has already been hired; the stage can no longer be changed.'),
+            ], 422);
+        }
+
         if ($request->stage === 'offer') {
             return response()->json([
-                'message' => 'Please use Send Offer so the offer letter is generated and emailed.',
+                'message' => __('Please use Send Offer so the offer letter is generated and emailed.'),
             ], 422);
         }
 
         if ($request->stage === 'hired') {
             return response()->json([
-                'message' => 'Please use Confirm Hire after the offer stage is complete.',
+                'message' => __('Please use Confirm Hire after the offer stage is complete.'),
             ], 422);
         }
 
@@ -238,8 +248,8 @@ class RecruitmentController extends Controller {
             'application' => $app,
             'email_sent' => $isNewRejection,
             'message' => $isNewRejection
-                ? 'Applicant rejected and rejection email sent.'
-                : 'Application stage updated.',
+                ? __('Applicant rejected and rejection email sent.')
+                : __('Application stage updated.'),
         ]);
     }
 
@@ -270,7 +280,7 @@ class RecruitmentController extends Controller {
 
         if ($interviewers->count() !== count(array_unique($data['interviewer_employee_ids']))) {
             return response()->json([
-                'message' => 'Select an eligible employee as interviewer; admin@hrms.com cannot be selected.',
+                'message' => __('Select an eligible employee as interviewer; admin@hrms.com cannot be selected.'),
             ], 422);
         }
 
@@ -288,7 +298,7 @@ class RecruitmentController extends Controller {
         $interview->application()->update(['stage' => 'interview']);
         $this->service->sendInterviewInvite($interview, $interviewers);
         return response()->json([
-            'message' => 'Interview scheduled and invitation email sent.',
+            'message' => __('Interview scheduled and invitation email sent.'),
             'interview' => $interview->fresh('application.jobPosting'),
         ], 201);
     }
@@ -296,7 +306,11 @@ class RecruitmentController extends Controller {
     public function updateInterview(Request $request, $id) {
         $this->ensureCanManageRecruitment($request);
         $interview = Interview::findOrFail($id);
-        $interview->update($request->all());
+        // A department manager may only edit interviews for applications in their scope.
+        $this->scopeApplications(JobApplication::query(), $this->managerDepartmentScope($request))
+            ->findOrFail($interview->application_id);
+        // Interviewers are validated in scheduleInterview(); never re-point or re-staff an interview here.
+        $interview->update($request->except(['application_id', 'interviewer_employee_ids', 'interviewers']));
         return response()->json(['interview' => $interview]);
     }
 
@@ -313,13 +327,13 @@ class RecruitmentController extends Controller {
         $app = $this->scopeApplications(JobApplication::query(), $this->managerDepartmentScope($request))
             ->findOrFail($applicationId);
         if (!$app->applicant_email) {
-            return response()->json(['message' => 'Applicant email is missing. Offer email cannot be sent.'], 422);
+            return response()->json(['message' => __('Applicant email is missing. Offer email cannot be sent.')], 422);
         }
 
         $offer = $this->service->generateOfferLetter($app, $data);
         $app->update(['stage' => 'offer']);
         return response()->json([
-            'message' => 'Offer letter sent',
+            'message' => __('Offer letter sent'),
             'offer' => $offer,
             'email_to' => $app->applicant_email,
             'email_cc' => $offer['cc'] ?? [],
@@ -345,7 +359,7 @@ class RecruitmentController extends Controller {
             ->findOrFail($applicationId);
         if (!in_array($app->stage, ['offer', 'hired'], true)) {
             return response()->json([
-                'message' => 'Hire confirmation is allowed only after the offer stage is complete or for an already hired applicant.',
+                'message' => __('Hire confirmation is allowed only after the offer stage is complete or for an already hired applicant.'),
             ], 422);
         }
 
@@ -366,8 +380,8 @@ class RecruitmentController extends Controller {
 
         return response()->json([
             'message'          => $isNewEmployee
-                ? 'Employee record created successfully.'
-                : 'Existing employee credentials updated and confirmation email sent.',
+                ? __('Employee record created successfully.')
+                : __('Existing employee credentials updated and confirmation email sent.'),
             'employee'         => $result['employee'],
             'employee_code'    => $result['employee_code'],
             'login_email'      => $result['login_email'],
@@ -491,7 +505,7 @@ class RecruitmentController extends Controller {
             \Illuminate\Support\Facades\Storage::disk('public')->delete($cv->cv_path);
         }
         $cv->delete();
-        return response()->json(['message' => 'CV removed from bank.']);
+        return response()->json(['message' => __('CV removed from bank.')]);
     }
 
     /** Move a CV bank entry to a job application */
@@ -507,7 +521,7 @@ class RecruitmentController extends Controller {
             'is_cv_bank'     => false,
             'stage'          => 'applied',
         ]);
-        return response()->json(['message' => 'CV linked to job posting.', 'application' => $cv]);
+        return response()->json(['message' => __('CV linked to job posting.'), 'application' => $cv]);
     }
 
     private function managerDepartmentScope(Request $request): ?int
@@ -595,7 +609,7 @@ class RecruitmentController extends Controller {
 
         if (!$belongsToDepartment) {
             throw ValidationException::withMessages([
-                'designation_id' => 'The selected job position does not belong to the selected department.',
+                'designation_id' => __('The selected job position does not belong to the selected department.'),
             ]);
         }
     }
