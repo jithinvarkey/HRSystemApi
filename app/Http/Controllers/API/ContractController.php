@@ -39,6 +39,20 @@ class ContractController extends Controller {
         ]);
     }
 
+    /** Same visibility as index(): HR roles see every contract, everyone else only their own. */
+    private function canViewEmployeeContracts(?int $employeeId): bool {
+        $user = auth()->user();
+        if (!$user) {
+            return false;
+        }
+
+        if ($user->hasAnyRole(['super_admin', 'ceo', 'hr_manager', 'hr_staff'])) {
+            return true;
+        }
+
+        return $employeeId !== null && $user->employee && (int) $user->employee->id === $employeeId;
+    }
+
     // ── List ──────────────────────────────────────────────────────────────
 
     /**
@@ -61,9 +75,8 @@ class ContractController extends Controller {
 
         $query = Contract::with(['employee.department', 'department', 'createdBy'])
                 ->when(!$isHRAdmin, function ($q) use ($user, $isMgr) {
-                    if ($user->employee) {
-                        $q->where('employee_id', $user->employee->id);
-                    }
+                    // Users without an employee record must not fall through to "all contracts".
+                    $q->where('employee_id', $user->employee?->id ?? 0);
                 })
                 ->when($request->status, fn($q) => $q->where('status', $request->status))
                 ->when($request->type, fn($q) => $q->where('type', $request->type))
@@ -78,7 +91,11 @@ class ContractController extends Controller {
                                             'like', "%{$request->search}%"
                             ));
                         }))
-                ->orderBy($request->sort_by ?? 'created_at', $request->sort_dir ?? 'desc');
+                ->orderBy(
+                    in_array($request->sort_by, ['created_at', 'start_date', 'end_date', 'reference', 'status', 'type'], true)
+                        ? $request->sort_by : 'created_at',
+                    strtolower((string) $request->sort_dir) === 'asc' ? 'asc' : 'desc'
+                );
 
         return response()->json(
                         ContractResource::collection($query->paginate((int) ($request->per_page ?? 15)))
@@ -97,7 +114,7 @@ class ContractController extends Controller {
     
     public function downloadActiveEmployeeContractsReport(Request $request, XlsxReportService $xlsxReports) {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to download this report.'], 403);
+            return response()->json(['message' => __('You do not have permission to download this report.')], 403);
         }
 
         $today = now()->toDateString();
@@ -229,8 +246,8 @@ class ContractController extends Controller {
                 ->where('status', 'active')
                 ->whereNotNull('end_date')
                 ->whereBetween('end_date', [
-                    now(),
-                    now()->copy()->addDays(30)
+                    now()->toDateString(),
+                    now()->addDays(30)->toDateString()
                 ])
                 ->count()
         ),
@@ -260,7 +277,7 @@ class ContractController extends Controller {
      */
     public function store(Request $request): JsonResponse {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to manage contracts.'], 403);
+            return response()->json(['message' => __('You do not have permission to manage contracts.')], 403);
         }
 
         $request->validate([
@@ -295,7 +312,7 @@ class ContractController extends Controller {
         ]);
 
         return response()->json([
-                    'message' => 'Contract created successfully.',
+                    'message' => __('Contract created successfully.'),
                     'contract' => new ContractResource($contract->load(['employee.department', 'department', 'createdBy'])),
                         ], 201);
     }
@@ -312,6 +329,10 @@ class ContractController extends Controller {
         $contract = Contract::with(['employee.department', 'department', 'createdBy', 'approvedBy'])
                 ->findOrFail($id);
 
+        if (!$this->canViewEmployeeContracts((int) $contract->employee_id)) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         return response()->json(['contract' => new ContractResource($contract)]);
     }
 
@@ -326,7 +347,7 @@ class ContractController extends Controller {
      */
     public function update(Request $request, int $id): JsonResponse {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to manage contracts.'], 403);
+            return response()->json(['message' => __('You do not have permission to manage contracts.')], 403);
         }
 
         $contract = Contract::findOrFail($id);
@@ -360,7 +381,7 @@ class ContractController extends Controller {
         $contract->update($data);
 
         return response()->json([
-                    'message' => 'Contract updated.',
+                    'message' => __('Contract updated.'),
                     'contract' => new ContractResource($contract->fresh(['employee.department', 'department'])),
         ]);
     }
@@ -375,13 +396,13 @@ class ContractController extends Controller {
      */
     public function approve(int $id): JsonResponse {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to manage contracts.'], 403);
+            return response()->json(['message' => __('You do not have permission to manage contracts.')], 403);
         }
 
         $contract = Contract::findOrFail($id);
 
         if ($contract->status !== 'draft') {
-            return response()->json(['message' => 'Only draft contracts can be approved.'], 422);
+            return response()->json(['message' => __('Only draft contracts can be approved.')], 422);
         }
 
         $contract->update([
@@ -391,7 +412,7 @@ class ContractController extends Controller {
         ]);
 
         return response()->json([
-                    'message' => 'Contract approved and activated.',
+                    'message' => __('Contract approved and activated.'),
                     'contract' => new ContractResource($contract->fresh(['employee', 'approvedBy'])),
         ]);
     }
@@ -406,12 +427,12 @@ class ContractController extends Controller {
      */
     public function destroy(int $id): JsonResponse {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to manage contracts.'], 403);
+            return response()->json(['message' => __('You do not have permission to manage contracts.')], 403);
         }
 
         $contract = Contract::findOrFail($id);
         $contract->delete();
-        return response()->json(['message' => 'Contract deleted.']);
+        return response()->json(['message' => __('Contract deleted.')]);
     }
 
     // ── Employee contracts ────────────────────────────────────────────────
@@ -428,7 +449,7 @@ class ContractController extends Controller {
     public function uploadDocument(Request $request, int $id): JsonResponse
     {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to manage contracts.'], 403);
+            return response()->json(['message' => __('You do not have permission to manage contracts.')], 403);
         }
 
         $request->validate([
@@ -446,7 +467,7 @@ class ContractController extends Controller {
         $contract->update(['pdf_path' => $path]);
 
         return response()->json([
-            'message'  => 'Contract document uploaded.',
+            'message'  => __('Contract document uploaded.'),
             'pdf_path' => $path,
             'pdf_url'  => Storage::disk('public')->url($path),
             'contract' => new ContractResource($contract->fresh(['employee.department', 'department'])),
@@ -463,8 +484,12 @@ class ContractController extends Controller {
     {
         $contract = Contract::findOrFail($id);
 
+        if (!$this->canViewEmployeeContracts((int) $contract->employee_id)) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         if (!$contract->pdf_path || !Storage::disk('public')->exists($contract->pdf_path)) {
-            return response()->json(['message' => 'No document attached to this contract.'], 404);
+            return response()->json(['message' => __('No document attached to this contract.')], 404);
         }
 
         $filename = "{$contract->reference}." . pathinfo($contract->pdf_path, PATHINFO_EXTENSION);
@@ -481,7 +506,7 @@ class ContractController extends Controller {
     public function deleteDocument(int $id): JsonResponse
     {
         if (!$this->canManageContracts()) {
-            return response()->json(['message' => 'You do not have permission to manage contracts.'], 403);
+            return response()->json(['message' => __('You do not have permission to manage contracts.')], 403);
         }
 
         $contract = Contract::findOrFail($id);
@@ -491,7 +516,7 @@ class ContractController extends Controller {
             $contract->update(['pdf_path' => null]);
         }
 
-        return response()->json(['message' => 'Contract document removed.']);
+        return response()->json(['message' => __('Contract document removed.')]);
     }
 
     // â”€â”€ Employee contracts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -503,6 +528,10 @@ class ContractController extends Controller {
      * @return JsonResponse
      */
     public function forEmployee(int $empId): JsonResponse {
+        if (!$this->canViewEmployeeContracts($empId)) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         $contracts = Contract::with(['department', 'createdBy', 'approvedBy'])
                 ->where('employee_id', $empId)
                 ->orderBy('start_date', 'desc')

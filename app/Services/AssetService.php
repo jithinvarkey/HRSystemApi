@@ -149,7 +149,7 @@ class AssetService
     public function delete(Asset $asset): void
     {
         if ($asset->status === 'assigned') {
-            throw new \RuntimeException('Cannot delete an asset that is currently assigned.');
+            throw new \RuntimeException(__('Cannot delete an asset that is currently assigned.'));
         }
 
         $this->deleteAttachment($asset);
@@ -172,11 +172,20 @@ class AssetService
     {
         if (!in_array($asset->status, ['available'], true)) {
             throw new \RuntimeException(
-                "Asset \"{$asset->name}\" is currently {$asset->status} and cannot be assigned."
+                __('Asset ":name" is currently :status and cannot be assigned.', ['name' => $asset->name, 'status' => \App\Support\Locale\StatusLabel::for($asset->status)])
             );
         }
 
         return DB::transaction(function () use ($asset, $employeeId, $data, $assignedBy): AssetAssignment {
+            // Re-check under a row lock so two concurrent requests (double click / two admins)
+            // cannot both check out the same asset and leave two open assignments.
+            $locked = Asset::whereKey($asset->id)->lockForUpdate()->first();
+            if (!$locked || $locked->status !== 'available') {
+                throw new \RuntimeException(
+                    __('Asset ":name" is currently :status and cannot be assigned.', ['name' => $asset->name, 'status' => \App\Support\Locale\StatusLabel::for($locked?->status ?? $asset->status)])
+                );
+            }
+
             $assignment = AssetAssignment::create([
                 'asset_id'           => $asset->id,
                 'employee_id'        => $employeeId,

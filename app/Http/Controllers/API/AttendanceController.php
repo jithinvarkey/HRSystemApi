@@ -29,6 +29,9 @@ class AttendanceController extends Controller
     public function checkIn(Request $request): JsonResponse
     {
         $employee = auth()->user()->employee;
+        if (! $employee) {
+            return response()->json(['message' => __('Employee not found')], 404);
+        }
         $today    = now()->toDateString();
 
         $existing = AttendanceLog::where('employee_id', $employee->id)
@@ -37,7 +40,7 @@ class AttendanceController extends Controller
 
         if ($existing && $existing->check_in) {
             return response()->json([
-                'message' => 'Already checked in today at ' . $existing->check_in,
+                'message' => __('Already checked in today at :time', ['time' => $existing->check_in]),
                 'log'     => $existing,
             ], 422);
         }
@@ -53,7 +56,7 @@ class AttendanceController extends Controller
             ]
         );
 
-        return response()->json(['message' => 'Check-in recorded', 'log' => $log]);
+        return response()->json(['message' => __('Check-in recorded'), 'log' => $log]);
     }
 
     // ── Check-out ─────────────────────────────────────────────────────────
@@ -61,6 +64,9 @@ class AttendanceController extends Controller
     public function checkOut(Request $request): JsonResponse
     {
         $employee = auth()->user()->employee;
+        if (! $employee) {
+            return response()->json(['message' => __('Employee not found')], 404);
+        }
         $today    = now()->toDateString();
 
         $log           = AttendanceLog::where('employee_id', $employee->id)
@@ -75,7 +81,7 @@ class AttendanceController extends Controller
             'total_minutes' => (int) $checkInCarbon->diffInMinutes($checkOutCarbon),
         ]);
 
-        return response()->json(['message' => 'Check-out recorded', 'log' => $log->fresh()]);
+        return response()->json(['message' => __('Check-out recorded'), 'log' => $log->fresh()]);
     }
 
     // ── Today ─────────────────────────────────────────────────────────────
@@ -99,6 +105,10 @@ class AttendanceController extends Controller
 
     public function employeeLog(Request $request, int $empId): JsonResponse
     {
+        if (! $this->canViewEmployeeAttendance($empId)) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         $logs = AttendanceLog::where('employee_id', $empId)
             ->when($request->month, fn ($q) => $q->whereMonth('date', $request->month))
             ->when($request->year,  fn ($q) => $q->whereYear('date', $request->year))
@@ -193,7 +203,7 @@ class AttendanceController extends Controller
     public function monthlyReport(Request $request)
     {
         if (!$this->hasAnyRoleDB(['super_admin', 'hr_manager', 'hr_staff'])) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
+            return response()->json(['message' => __('Unauthorized.')], 403);
         }
 
         return $this->monthlyReportService->download($request);
@@ -203,6 +213,10 @@ class AttendanceController extends Controller
 
     public function manualEntry(Request $request): JsonResponse
     {
+        if (!$this->hasAnyRoleDB(['super_admin', 'hr_manager', 'hr_staff'])) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         $request->validate([
             'employee_id' => 'required|exists:employees,id',
             'date'        => 'required|date',
@@ -334,6 +348,7 @@ class AttendanceController extends Controller
             ->map(fn ($log) => [
                 'name'       => $log->employee?->full_name,
                 'department' => $log->employee?->department?->name,
+                'department_ar' => $log->employee?->department?->name_ar,
                 'status'     => $log->status,
                 'check_in'   => $log->check_in,
             ]);
@@ -466,6 +481,10 @@ class AttendanceController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        if (!$this->hasAnyRoleDB(['super_admin', 'hr_manager', 'hr_staff'])) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         $log = AttendanceLog::findOrFail($id);
 
         $request->validate([
@@ -478,7 +497,7 @@ class AttendanceController extends Controller
         $data = $request->only(['check_in', 'check_out', 'status', 'notes']);
 
         // Recalculate total_minutes if both times are present
-        if (!empty($data['check_in']) && !empty($data['check_out'] ?? $log->check_out)) {
+        if (!empty($data['check_in'] ?? $log->check_in) && !empty($data['check_out'] ?? $log->check_out)) {
             $cin  = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_in']  ?? $log->check_in));
             $cout = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_out'] ?? $log->check_out));
             $data['total_minutes'] = (int) $cin->diffInMinutes($cout);
@@ -486,7 +505,7 @@ class AttendanceController extends Controller
 
         $log->update(array_merge($data, ['source' => 'manual']));
 
-        return response()->json(['message' => 'Attendance record updated.', 'log' => $log->fresh()]);
+        return response()->json(['message' => __('Attendance record updated.'), 'log' => $log->fresh()]);
     }
 
     // ── Settings ─────────────────────────────────────────────────────────
@@ -509,6 +528,10 @@ class AttendanceController extends Controller
      */
     public function saveSettings(Request $request): JsonResponse
     {
+        if (!$this->hasAnyRoleDB(['super_admin', 'hr_manager', 'hr_staff'])) {
+            return response()->json(['message' => __('Unauthorized.')], 403);
+        }
+
         $request->validate([
             'work_start'         => 'required|date_format:H:i',
             'late_after_minutes' => 'required|integer|min:0|max:120',
@@ -527,10 +550,40 @@ class AttendanceController extends Controller
         $reclassified = $this->attendancePolicy->reclassifyAutomaticLogsForDate(now(), $settings);
 
         return response()->json([
-            'message' => 'Settings saved.',
+            'message' => __('Settings saved.'),
             'settings' => $settings,
             'reclassified_today' => $reclassified,
         ]);
+    }
+
+    /** HR sees everyone; others see themselves, their direct reports and (department managers) their department. */
+    private function canViewEmployeeAttendance(int $empId): bool
+    {
+        if ($this->hasAnyRoleDB(['super_admin', 'hr_manager', 'hr_staff'])) {
+            return true;
+        }
+
+        $own = auth()->user()?->employee;
+        if (! $own) {
+            return false;
+        }
+
+        if ($empId === (int) $own->id) {
+            return true;
+        }
+
+        $target = \App\Models\Employee::find($empId, ['id', 'manager_id', 'department_id']);
+        if (! $target) {
+            return false;
+        }
+
+        if ((int) $target->manager_id === (int) $own->id) {
+            return true;
+        }
+
+        return $this->hasAnyRoleDB(['department_manager'])
+            && $own->department_id
+            && (int) $target->department_id === (int) $own->department_id;
     }
 
     private function hasAnyRoleDB(array $roles): bool

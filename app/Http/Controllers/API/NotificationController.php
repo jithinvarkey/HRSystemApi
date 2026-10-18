@@ -29,7 +29,7 @@ class NotificationController extends Controller
 
         $notifications = AppNotification::where('employee_id', $empId)
             ->orderByDesc('created_at')
-            ->limit((int) ($request->limit ?? 20))
+            ->limit(max(1, min(100, (int) ($request->limit ?? 20))))
             ->get();
 
         return response()->json([
@@ -44,7 +44,7 @@ class NotificationController extends Controller
         $empId = $this->employeeId();
         AppNotification::where('id', $id)->where('employee_id', $empId)
             ->update(['read_at' => now()]);
-        return response()->json(['message' => 'Marked as read.']);
+        return response()->json(['message' => __('Marked as read.')]);
     }
 
     /** Mark all of the current employee's notifications as read. */
@@ -53,6 +53,6 @@ class NotificationController extends Controller
         $empId = $this->employeeId();
         AppNotification::where('employee_id', $empId)->unread()
             ->update(['read_at' => now()]);
-        return response()->json(['message' => 'All marked as read.']);
+        return response()->json(['message' => __('All marked as read.')]);
     }
 }

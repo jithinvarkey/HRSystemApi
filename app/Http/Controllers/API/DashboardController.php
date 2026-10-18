@@ -126,7 +126,7 @@ class DashboardController extends Controller
             ->where('end_date', '>=', $today)->count());
         $approvedMonth = $safe(fn () => $leaveQuery()
             ->where('status', 'approved')
-            ->whereMonth('updated_at', $month)->count());
+            ->whereMonth('updated_at', $month)->whereYear('updated_at', $year)->count());
         $totalLeave    = $safe(fn () => $leaveQuery()->count());
 
         // ── Attendance ─────────────────────────────────────────────────
@@ -146,7 +146,7 @@ class DashboardController extends Controller
         $payPending   = $safe(fn () => $payrollQuery()->whereIn('status', ['pending_approval', 'draft'])->count());
         $payErrors    = $safe(fn () => $payrollQuery()->where('status', 'rejected')->count());
         $payOnHold    = $safe(fn () => $payrollQuery()->where('status', 'on_hold')->count());
-        $payDue       = $safe(fn () => $payrollQuery()->whereMonth('created_at', $month)->count());
+        $payDue       = $safe(fn () => $payrollQuery()->whereMonth('created_at', $month)->whereYear('created_at', $year)->count());
         $payTotal     = $safe(fn () => $payrollQuery()->count());
 
         // ── Recruitment ────────────────────────────────────────────────
@@ -160,7 +160,7 @@ class DashboardController extends Controller
         $totalApplicants = $safe(fn () => $applicationQuery()->count());
         $newApplicants   = $safe(fn () => $applicationQuery()->where('job_applications.created_at', '>=', now()->subDays(7))->count());
         $offersSent      = $safe(fn () => $applicationQuery()->where('job_applications.stage', 'offer')->count());
-        $hiredThisMonth  = $safe(fn () => $applicationQuery()->where('job_applications.stage', 'hired')->whereMonth('job_applications.updated_at', $month)->count());
+        $hiredThisMonth  = $safe(fn () => $applicationQuery()->where('job_applications.stage', 'hired')->whereMonth('job_applications.updated_at', $month)->whereYear('job_applications.updated_at', $year)->count());
 
         // ── Performance ────────────────────────────────────────────────
         $performanceQuery = fn () => $this->applyEmployeeScope(DB::table('performance_reviews'), $scope);
@@ -355,21 +355,21 @@ class DashboardController extends Controller
             ->join('employees', 'departments.id', '=', 'employees.department_id')
             ->whereNull('employees.deleted_at')
             ->where('employees.status', 'active'), $scope, 'employees.id')
-            ->selectRaw('departments.name, COUNT(employees.id) as count')
-            ->groupBy('departments.id', 'departments.name')
+            ->selectRaw('departments.name, departments.name_ar, COUNT(employees.id) as count')
+            ->groupBy('departments.id', 'departments.name', 'departments.name_ar')
             ->orderByDesc('count')
             ->limit(8)
             ->get()
-            ->map(fn ($r) => ['name' => $r->name, 'count' => $r->count]));
+            ->map(fn ($r) => ['name' => $r->name, 'name_ar' => $r->name_ar, 'count' => $r->count]));
 
         $leaveByType = $safe(fn () => $this->applyEmployeeScope(DB::table('leave_requests')
             ->join('leave_types', 'leave_requests.leave_type_id', '=', 'leave_types.id')
             ->where('leave_requests.status', 'approved')
             ->whereYear('leave_requests.created_at', now()->year), $scope, 'leave_requests.employee_id')
-            ->selectRaw('leave_types.name as leave_type, COUNT(*) as count')
-            ->groupBy('leave_types.id', 'leave_types.name')
+            ->selectRaw('leave_types.name as leave_type, leave_types.name_ar as leave_type_ar, COUNT(*) as count')
+            ->groupBy('leave_types.id', 'leave_types.name', 'leave_types.name_ar')
             ->get()
-            ->map(fn ($r) => ['leave_type' => $r->leave_type, 'count' => $r->count]));
+            ->map(fn ($r) => ['leave_type' => $r->leave_type, 'leave_type_ar' => $r->leave_type_ar, 'count' => $r->count]));
 
         $perfRatings = $safe(fn () => $this->applyEmployeeScope(DB::table('performance_reviews')
             ->whereNotNull('final_rating'), $scope, 'performance_reviews.employee_id')
