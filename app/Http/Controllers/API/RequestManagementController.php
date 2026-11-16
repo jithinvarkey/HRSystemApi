@@ -410,7 +410,9 @@ class RequestManagementController extends Controller {
         $this->sendStatusUpdateEmails(
             $req->fresh(['employee', 'requestType', 'assignedTo']),
             'pending',
-            null // the mail adds the standard note in the recipient's language
+            null, // the mail adds the standard note in the recipient's language
+            false,
+            true // manager decision: inform HR as well as the requester
         );
         return response()->json(['message' => __('Approved — forwarded to HR.'), 'request' => $req->fresh()]);
     }
@@ -563,7 +565,8 @@ class RequestManagementController extends Controller {
             $req->fresh(['employee', 'requestType', 'assignedTo']),
             'rejected',
             $request->reason,
-            $wasAwaitingManager
+            $wasAwaitingManager && !$this->isDirectManagerOf($req), // tell the manager unless they rejected it themself
+            $wasAwaitingManager // rejected at the manager-approval stage: inform HR
         );
         return response()->json(['message' => __('Request rejected.')]);
     }
@@ -631,7 +634,7 @@ class RequestManagementController extends Controller {
         $this->queueRequestMails($req, $req->status, $recipients);
     }
 
-    private function sendStatusUpdateEmails(EmployeeRequest $req, string $status, ?string $note = null, bool $notifyManager = false): void
+    private function sendStatusUpdateEmails(EmployeeRequest $req, string $status, ?string $note = null, bool $notifyManager = false, bool $notifyHR = false): void
     {
         $req->loadMissing(['employee', 'requestType', 'assignedTo']);
 
@@ -656,7 +659,32 @@ class RequestManagementController extends Controller {
             $this->handlingDepartmentRecipients($req)->each(fn($r) => $recipients->push($r));
         }
 
+        if ($notifyHR) {
+            $this->hrRecipients()->each(fn($r) => $recipients->push($r));
+        }
+
         $this->queueRequestMails($req, $status, $recipients, $note);
+    }
+
+    /** Users with an HR role (hr_manager, hr_staff) who have an email address. */
+    private function hrRecipients(): \Illuminate\Support\Collection
+    {
+        $userIds = rescue(fn() => DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->whereIn('roles.name', ['hr_manager', 'hr_staff'])
+            ->pluck('model_has_roles.model_id'), collect(), false);
+
+        return User::with('employee:id,user_id,arabic_name,status')
+            ->whereIn('id', $userIds)
+            ->whereNotNull('email')
+            ->where('email', '<>', '')
+            ->get(['id', 'name', 'email'])
+            ->reject(fn($user) => $user->employee && $user->employee->status !== 'active')
+            ->map(fn($user) => [
+                'email' => $user->email,
+                'name' => $user->name ?: null,
+                'name_ar' => $user->employee?->arabic_name,
+            ]);
     }
 
     private function requesterRecipient(EmployeeRequest $req): ?array
