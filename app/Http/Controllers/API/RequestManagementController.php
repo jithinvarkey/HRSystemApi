@@ -482,7 +482,8 @@ class RequestManagementController extends Controller {
             return response()->json(['message' => __('Only the assigned person or HR can complete this request.')], 403);
         }
 
-        if (in_array($req->status, ['completed', 'rejected', 'cancelled'], true)) {
+        // The direct manager must approve first; HR gives the final approval afterwards.
+        if (in_array($req->status, ['pending_manager', 'completed', 'rejected', 'cancelled'], true)) {
             return response()->json(['message' => __('Request cannot be completed at this stage.')], 422);
         }
 
