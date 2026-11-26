@@ -159,6 +159,7 @@ Route::prefix('v1')->group(function () {
             Route::put('/{id}',                          [EmployeeController::class, 'update']);
             Route::delete('/{id}',                       [EmployeeController::class, 'destroy'])->middleware('role:super_admin|ceo|hr_manager|hr_staff');
             Route::post('/{id}/avatar',                  [EmployeeController::class, 'uploadAvatar']);
+            Route::get('/{id}/avatar',                   [EmployeeController::class, 'avatar'])->whereNumber('id');
             Route::post('/{id}/documents',               [EmployeeController::class, 'uploadDocument']);
             Route::get('/{id}/documents',                [EmployeeController::class, 'listDocuments']);
             Route::delete('/{id}/documents/{docId}',     [EmployeeController::class, 'deleteDocument']);

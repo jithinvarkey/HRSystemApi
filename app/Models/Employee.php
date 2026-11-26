@@ -104,7 +104,11 @@ class Employee extends Model
 
     public function getAvatarUrlAttribute(): ?string
     {
-        return $this->avatar ? asset('storage/' . $this->avatar) : null;
+        // Profile photos are private: served by an authenticated API endpoint, never from /storage.
+        // Relative, like every API call of the SPA; ?v= changes when the photo changes (browser cache).
+        return $this->avatar
+            ? '/api/v1/employees/' . $this->id . '/avatar?v=' . substr(md5((string) $this->avatar), 0, 8)
+            : null;
     }
 
     public function user()          { return $this->belongsTo(User::class); }
