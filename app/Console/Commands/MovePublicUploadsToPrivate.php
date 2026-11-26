@@ -16,12 +16,12 @@ use Illuminate\Support\Facades\Storage;
  */
 class MovePublicUploadsToPrivate extends Command
 {
-    public const DIRECTORIES = ['leave-documents', 'contracts', 'recruitment', 'requests'];
+    public const DIRECTORIES = ['leave-documents', 'contracts', 'recruitment', 'requests', 'avatars'];
 
     protected $signature = 'uploads:move-private
                             {--dry-run : List the files that would be moved without changing anything}';
 
-    protected $description = 'Move sensitive uploads (leave documents, contracts, CVs, request files) from the public disk to the private local disk';
+    protected $description = 'Move sensitive uploads (leave documents, contracts, CVs, request files, profile photos) from the public disk to the private local disk';
 
     public function handle(): int
     {

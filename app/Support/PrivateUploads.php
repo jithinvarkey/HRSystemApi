@@ -49,6 +49,20 @@ class PrivateUploads
         return Storage::disk($disk)->download($path, $name ?: basename($path), $headers);
     }
 
+    /**
+     * Stream the file for display in the page (e.g. an <img> loaded as a blob), not as a download.
+     * Null when it is not on either disk.
+     */
+    public static function inline(?string $path, array $headers = []): ?StreamedResponse
+    {
+        $disk = self::diskFor($path);
+        if ($disk === null) {
+            return null;
+        }
+
+        return Storage::disk($disk)->response($path, basename($path), $headers);
+    }
+
     /** Remove the file from whichever disk(s) hold it. */
     public static function delete(?string $path): void
     {

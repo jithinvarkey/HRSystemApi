@@ -875,12 +875,26 @@ class EmployeeController extends Controller {
         if (!$this->hasAnyRoleDB(['super_admin', 'hr_manager', 'hr_staff']) && (int) auth()->user()?->employee?->id !== $employee->id) {
             return response()->json(['message' => __('Unauthorized.')], 403);
         }
-        $request->validate(['avatar' => 'required|image|max:2048']);
+        $request->validate(['avatar' => 'required|image|mimes:jpg,jpeg,png,gif,webp|max:2048']);
         if ($employee->avatar)
-            Storage::disk('public')->delete($employee->avatar);
-        $path = $request->file('avatar')->store('avatars', 'public');
+            \App\Support\PrivateUploads::delete($employee->avatar);
+        $path = $request->file('avatar')->store('avatars', \App\Support\PrivateUploads::DISK);
         $employee->update(['avatar' => $path]);
-        return response()->json(['avatar_url' => asset('storage/' . $path)]);
+        return response()->json(['avatar_url' => $employee->avatar_url]);
+    }
+
+    /**
+     * Profile photo of an employee, for any signed-in user (colleagues see each other's photos in
+     * lists and the org chart). Not reachable without a login, unlike the old /storage/avatars links.
+     */
+    public function avatar(int $id)
+    {
+        $employee = Employee::withTrashed()->findOrFail($id);
+        $response = \App\Support\PrivateUploads::inline($employee->avatar, [
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+
+        return $response ?? response()->json(['message' => __('No photo.')], 404);
     }
 
     public function uploadDocument(Request $request, int $id): JsonResponse {
